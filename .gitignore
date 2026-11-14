@@ -1,0 +1,19 @@
+# secrets and local config
+.env
+config/config.yaml
+
+# runtime data
+*.db
+*.db-journal
+logs/
+.champion/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/

@@ -1,0 +1,70 @@
+# Champion configuration example.
+# Copy to config/config.yaml and edit. config/config.yaml is git-ignored.
+# Any key you leave out uses the built-in default (champion/core/config.py).
+# Relative paths: execution.working_directory is relative to the folder you start
+# Champion from; all other paths are relative to the project root (the folder
+# that contains config/).
+# The OpenAI key is NOT set here: use the OPENAI_API_KEY environment variable
+# or a .env file in the project root (chmod 600 .env).
+
+llm:
+  provider: openai
+  model_id: REPLACE_WITH_MODEL_ID   # an OpenAI model that supports tool calling
+  model_ids: []                     # optional fallback models, tried in order
+  base_url: null                    # null = api.openai.com (set later for a gateway)
+  tracing: false                    # true would send SDK traces to OpenAI
+
+orchestration:
+  max_steps: 8                      # orchestrator turns per request
+  specialist_max_turns: 20          # turns inside one specialist call
+  prevent_repeated_action: true
+
+policy:
+  default_level: "1.1"              # 1.1, 1.2, 2.1, 2.2 or custom (quote the number)
+  custom:                           # used when the level is custom
+    read: working                   # none, working or outside
+    write: none                     # none, working or outside (not wider than read)
+    extra_dirs: []                  # extra folders allowed for read (and write if allowed)
+
+execution:
+  working_directory: .
+  require_approval: true            # approve every generated-code run
+  timeout_seconds: 120
+  max_output_chars: 12000           # text a tool may return to the model per call
+  max_memory_bytes: 4294967296      # 4 GiB for generated code
+  max_cpu_seconds: 300
+  max_output_file_bytes: 104857600  # 100 MiB largest file generated code may write
+
+edit:
+  full_backup: false                # true = full copy before editing a large deck
+
+storage:
+  audit_db: champion.db
+  log_dir: logs
+
+agents:
+  pydyna:
+    enabled: true
+  linux_coder:
+    enabled: true
+
+pydyna:
+  database_path: null               # existing Chroma vector_db folder (step 3)
+  keyword_reference_path: null      # knowledge-base/keyword_reference.jsonl (step 3)
+  python_path: null                 # Python with ansys-dyna-core (step 8)
+  large_file_bytes: 104857600       # 100 MiB: files this size or larger use large-file mode
+  max_model_bytes: 8589934592       # 8 GiB: larger files are refused
+  max_include_files: 1024
+  max_include_depth: 64
+  model_timeout_seconds: 120
+  max_memory_bytes: 4294967296
+
+kb:
+  sources:
+    pydyna: null                    # local checkout of the PyDyna repository
+    pydpf_post: null                # local checkout of the PyDPF-Post repository
+  max_source_file_bytes: 2097152    # 2 MiB: larger source files are skipped
+
+mcp:
+  enabled: false
+  servers: {}

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "champion"
+version = "0.1.0"
+description = "Multi-agent CAE assistant (PyDyna, Linux) built on the OpenAI Agents SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai-agents>=0.2",
+    "openai>=1.40",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "rich>=13.7",
+    "textual>=0.80,<2",
+]
+
+[project.optional-dependencies]
+pydyna = ["chromadb>=0.5", "sentence-transformers>=2.3"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+champion = "champion.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["champion*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
