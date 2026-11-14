@@ -2,7 +2,7 @@
 
 Multi-agent CAE assistant (PyDyna / LS-DYNA and Linux) built on the OpenAI Agents SDK. Rebuild of mChampion, developed step by step; see `PLAN.md` for the steps and `docs/steps/` for a walkthrough of each one.
 
-Current state: step 0 (project skeleton, configuration, `champion doctor`).
+Current state: step 1 (configuration, `champion doctor`, and a first agent in `champion chat` with one tool, `session_info`).
 
 ## Install
 
@@ -36,6 +36,15 @@ pytest
 ```
 
 `champion doctor` exits with 0 when nothing failed, 1 when a check failed and 2 when the config is invalid.
+
+## Chat
+
+```bash
+champion chat                                   # interactive: /help, /new, /usage, /exit
+champion chat -q "What time is it and which folder am I in?"
+```
+
+Tool calls are printed as `-> tool(arguments)` and `<- tool: N chars`. Only the last `orchestration.history_turns` turns (10) are sent with each question; `/new` starts a fresh conversation.
 
 ## Safety notes
 

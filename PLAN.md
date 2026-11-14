@@ -34,11 +34,21 @@ The full design (access levels, large-file handling, code review and execution, 
 
 Verify: `pip install -e '.[dev]'`, `pytest`, `champion doctor` (and `champion doctor --online` with a real key).
 
-Status: built; 40 tests pass and `champion doctor` gives the expected results on Databricks serverless (Python 3.12, openai-agents 0.24.0). Waiting for the user's check on the Linux machine.
+Status: built and pushed (commit "Step 0"); 40 tests pass and `champion doctor` gives the expected results on Databricks serverless (Python 3.12, openai-agents 0.24.0). Waiting for the user's check on the Linux machine.
 
 ### Step 1 - First agent in a plain command-line chat
 One Agent, `Runner.run`, one harmless tool, printed tool calls. Learn: Agent, Runner, `function_tool`, how the SDK replaces the hand-built loop from lab 3.
-- [ ] Not started
+- [x] `champion/core/context.py` (`ChampionContext`), `champion/core/hooks.py` (`ToolEventRecorder`)
+- [x] `champion/core/runtime.py`: one `AsyncOpenAI` client, `OpenAIResponsesModel`, tracing off, in-memory `SQLiteSession` trimmed to `orchestration.history_turns` (new key, default 10), `max_turns` = `orchestration.max_steps`
+- [x] `champion/agents/assistant.py` with the `session_info` tool (`champion/tools/session_info.py`, reads no files)
+- [x] `champion/chat.py` and `champion chat [-q]` (`/help`, `/new`, `/usage`, `/exit`)
+- [x] Tests with a scripted `FakeModel` (no network): `tests/test_runtime.py`, `tests/test_chat.py`
+- [x] Walkthrough: `docs/steps/01-first-agent.md`
+- [ ] User verified
+
+Verify: `pytest` (56), `champion chat -q "What time is it and which folder am I in?"`, then `champion chat`.
+
+Status: built; 56 tests pass on Databricks serverless; scripted chat output checked; real model wiring reached the OpenAI API (invalid test key gave HTTP 401, shown in one line). A real answer needs the user's key. `openai-agents` pinned to `>=0.24,<1`.
 
 ### Step 2 - Access levels and file tools
 Levels 1.1, 1.2, 2.1, 2.2, Custom; `filesystem_read`, `filesystem_list` with level checks; `--level`. Learn: run context, `is_enabled`, why checks live inside tools.

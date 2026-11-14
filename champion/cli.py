@@ -1,7 +1,7 @@
 """Champion command line.
 
-Step 0 provides ``champion --version`` and ``champion doctor``. Later steps add
-the chat (step 1), the terminal UI (step 5) and ``champion kb`` (step 10).
+``champion --version``, ``champion doctor`` (step 0) and ``champion chat``
+(step 1). Later steps add the terminal UI (step 5) and ``champion kb`` (step 10).
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = commands.add_parser("doctor", help="check that Champion is ready to run")
     doctor.add_argument("--online", action="store_true",
                         help="also make one OpenAI API call to check the key and model")
+
+    chat = commands.add_parser("chat", help="chat with Champion in the terminal")
+    chat.add_argument("-q", "--question", help="ask one question, print the answer and exit")
     return parser
 
 
@@ -44,6 +47,17 @@ def main(argv: list[str] | None = None) -> int:
         results = run_checks(config, online=args.online)
         render(results)
         return 1 if any(r.status == FAIL for r in results) else 0
+
+    if args.command == "chat":
+        from champion.chat import run_chat
+        from champion.core.runtime import ChampionRuntime, RuntimeSetupError
+
+        try:
+            runtime = ChampionRuntime(config)
+        except RuntimeSetupError as exc:
+            print(f"Cannot start: {exc}", file=sys.stderr)
+            return 2
+        return run_chat(runtime, args.question)
     return 0
 
 

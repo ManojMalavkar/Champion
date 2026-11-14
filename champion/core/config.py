@@ -51,6 +51,7 @@ DEFAULTS: dict[str, Any] = {
     "orchestration": {
         "max_steps": 8,  # orchestrator max_turns
         "specialist_max_turns": 20,  # nested runs (PyDyna: 20 tool rounds)
+        "history_turns": 10,  # earlier conversation turns sent with each request
         "prevent_repeated_action": True,
     },
     "policy": {
@@ -264,6 +265,7 @@ def validate(data: dict) -> list[str]:
 
     positive_int("orchestration.max_steps", 50)
     positive_int("orchestration.specialist_max_turns", 100)
+    positive_int("orchestration.history_turns", 100)
     boolean("orchestration.prevent_repeated_action")
 
     level = data["policy"]["default_level"]

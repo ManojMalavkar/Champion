@@ -17,6 +17,7 @@ llm:
 orchestration:
   max_steps: 8                      # orchestrator turns per request
   specialist_max_turns: 20          # turns inside one specialist call
+  history_turns: 10                 # earlier conversation turns sent with each request
   prevent_repeated_action: true
 
 policy:
