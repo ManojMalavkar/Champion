@@ -13,7 +13,7 @@ source .venv/bin/activate
 pip install -e '.[dev]'          # add ,pydyna for the knowledge base (step 3)
 ```
 
-Requires Python 3.10 or newer.
+Requires Python 3.10 or newer. Use a dedicated virtual environment: `openai-agents` 0.24 requires `openai` 3.x, which conflicts with packages that need `openai` 2.x (for example `langchain-openai` 1.4 used in the course labs).
 
 ## Configure
 
