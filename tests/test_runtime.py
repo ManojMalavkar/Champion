@@ -28,8 +28,8 @@ def make_config(tmp_path: Path, extra: str = ""):
 # ------------------------------------------------------------- setup
 
 def test_client_uses_key_and_base_url(tmp_path):
-    config = make_config(tmp_path, "  base_url: https://gateway.example/v1\n")
-    client = build_client(config, env={"OPENAI_API_KEY": SECRET})
+    config = make_config(tmp_path, "  api_key_env: DATABRICKS_TOKEN\n  base_url: https://gateway.example/v1\n")
+    client = build_client(config, env={"DATABRICKS_TOKEN": SECRET})
     assert client.api_key == SECRET
     assert str(client.base_url).startswith("https://gateway.example/v1")
 

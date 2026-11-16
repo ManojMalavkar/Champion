@@ -41,6 +41,13 @@ def test_missing_key_fails(tmp_path):
     assert results[0].status == FAIL
 
 
+def test_configured_key_environment_name(tmp_path):
+    config = make_config(tmp_path, "llm:\n  api_key_env: DATABRICKS_TOKEN\n")
+    results = doctor.check_api_key(config, env={"DATABRICKS_TOKEN": SECRET})
+    assert results[0].status == OK
+    assert SECRET not in results[0].detail
+
+
 @pytest.mark.skipif(os.name != "posix", reason="file modes are POSIX only")
 def test_dotenv_readable_by_others_warns(tmp_path):
     config = make_config(tmp_path)
@@ -100,28 +107,34 @@ def test_online_check_reports_error_type_only(tmp_path, monkeypatch):
     class FakeError(Exception):
         status_code = 401
 
+    class FakeResponses:
+        def create(self, **kwargs):
+            raise FakeError(f"bad key {SECRET}")
+
     class FakeClient:
         def __init__(self, **kwargs):
             assert kwargs["api_key"] == SECRET
-            self.models = self
-
-        def retrieve(self, model):
-            raise FakeError(f"bad key {SECRET}")
+            self.responses = FakeResponses()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
-    result = doctor.check_online(make_config(tmp_path), env={"OPENAI_API_KEY": SECRET})
+    config = make_config(tmp_path, "  api_key_env: DATABRICKS_TOKEN\n")
+    result = doctor.check_online(config, env={"DATABRICKS_TOKEN": SECRET})
     assert result.status == FAIL
     assert "FakeError (HTTP 401)" in result.detail
     assert SECRET not in result.detail
 
 
 def test_online_check_ok(tmp_path, monkeypatch):
+    class FakeResponses:
+        def create(self, **kwargs):
+            assert kwargs["model"] == "test-model"
+            assert kwargs["max_output_tokens"] == 16
+            assert kwargs["input"][0]["role"] == "user"
+            return object()
+
     class FakeClient:
         def __init__(self, **kwargs):
-            self.models = self
-
-        def retrieve(self, model):
-            return {"id": model}
+            self.responses = FakeResponses()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
     assert doctor.check_online(make_config(tmp_path), env={"OPENAI_API_KEY": SECRET}).status == OK

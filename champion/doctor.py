@@ -81,10 +81,11 @@ def check_config(config: Config) -> list[CheckResult]:
 
 
 def check_api_key(config: Config, env: Mapping[str, str] | None = None) -> list[CheckResult]:
-    key, source = get_openai_api_key(config.root, env)
+    api_key_env = config.get("llm.api_key_env")
+    key, source = get_openai_api_key(config.root, env, api_key_env)
     if key is None:
         return [CheckResult("OpenAI key", FAIL,
-                            f"OPENAI_API_KEY not found in the environment or {config.root / '.env'}")]
+                            f"{api_key_env} not found in the environment or {config.root / '.env'}")]
     results = [CheckResult("OpenAI key", OK, f"found in {source} (value not shown)")]
     dotenv_file = config.root / ".env"
     if source == ".env" and os.name == "posix":
@@ -159,8 +160,8 @@ def check_paths(config: Config) -> list[CheckResult]:
 
 
 def check_online(config: Config, env: Mapping[str, str] | None = None) -> CheckResult:
-    """One real API call: confirm the key works and the model exists."""
-    key, _ = get_openai_api_key(config.root, env)
+    """Make one Responses API call to confirm the configured endpoint works."""
+    key, _ = get_openai_api_key(config.root, env, config.get("llm.api_key_env"))
     model = config.get("llm.model_id")
     if key is None:
         return CheckResult("OpenAI connection", FAIL, "skipped: no key")
@@ -168,8 +169,12 @@ def check_online(config: Config, env: Mapping[str, str] | None = None) -> CheckR
         from openai import OpenAI
 
         client = OpenAI(api_key=key, base_url=config.get("llm.base_url"), timeout=15, max_retries=0)
-        client.models.retrieve(model)
-        return CheckResult("OpenAI connection", OK, f"key accepted, model '{model}' available")
+        client.responses.create(
+            model=model,
+            max_output_tokens=16,
+            input=[{"role": "user", "content": [{"type": "input_text", "text": "Reply with OK."}]}],
+        )
+        return CheckResult("OpenAI connection", OK, f"Responses API succeeded for model '{model}'")
     except Exception as exc:  # report the error type only; messages may echo request details
         status = getattr(exc, "status_code", None)
         code = f" (HTTP {status})" if status else ""

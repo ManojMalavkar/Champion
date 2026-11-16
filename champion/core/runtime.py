@@ -35,9 +35,12 @@ class RuntimeSetupError(RuntimeError):
 
 
 def build_client(config: Config, env: Mapping[str, str] | None = None) -> AsyncOpenAI:
-    key, _source = get_openai_api_key(config.root, env)
+    api_key_env = config.get("llm.api_key_env")
+    key, _source = get_openai_api_key(config.root, env, api_key_env)
     if key is None:
-        raise RuntimeSetupError("OPENAI_API_KEY not found in the environment or .env; run 'champion doctor'")
+        raise RuntimeSetupError(
+            f"{api_key_env} not found in the environment or .env; run 'champion doctor'"
+        )
     return AsyncOpenAI(api_key=key, base_url=config.get("llm.base_url"))
 
 

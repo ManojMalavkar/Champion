@@ -22,7 +22,7 @@ cp config/config.example.yaml config/config.yaml   # then set llm.model_id
 echo 'OPENAI_API_KEY=sk-...' > .env && chmod 600 .env
 ```
 
-The key can also come from the `OPENAI_API_KEY` environment variable (takes precedence over `.env`). Champion never prints or logs the key and does not copy `.env` into the process environment. `config/config.yaml` and `.env` are git-ignored.
+Set `llm.api_key_env` in `config/config.yaml` to the name of the environment variable holding your key (default: `OPENAI_API_KEY`). The same name is used when reading `.env`; put only the variable name, never the key value, in the config. The environment takes precedence over `.env`. Champion never prints or logs the key and does not copy `.env` into the process environment. `config/config.yaml` and `.env` are git-ignored.
 
 Config file lookup: `--config PATH`, else `CHAMPION_CONFIG`, else `config/config.yaml`. Keys you leave out use the defaults in `champion/core/config.py` (the example file lists all of them).
 

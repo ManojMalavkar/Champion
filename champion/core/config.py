@@ -15,10 +15,9 @@ Relative paths:
   parent of the ``config/`` folder that holds the file, or the file's own
   folder if it is not inside a ``config/`` folder.
 
-The OpenAI key is never stored in the config. ``get_openai_api_key`` reads it
-from the environment or from a ``.env`` file in the project root, without
-putting it into ``os.environ`` (so child processes started later do not
-inherit it).
+The API key is never stored in the config. ``get_openai_api_key`` reads the
+configured environment variable from the environment or a ``.env`` file in the
+project root, without putting it into ``os.environ``.
 """
 
 from __future__ import annotations
@@ -45,6 +44,7 @@ DEFAULTS: dict[str, Any] = {
         "provider": "openai",
         "model_id": PLACEHOLDER_MODEL,
         "model_ids": [],  # optional fallback models, tried in order
+        "api_key_env": "OPENAI_API_KEY",
         "base_url": None,  # None = api.openai.com; set later for a gateway
         "tracing": False,  # SDK traces would be sent to OpenAI
     },
@@ -258,6 +258,9 @@ def validate(data: dict) -> list[str]:
         errors.append("llm.model_id must be a non-empty text")
     if not isinstance(llm["model_ids"], list) or not all(isinstance(m, str) and m for m in llm["model_ids"]):
         errors.append("llm.model_ids must be a list of model names")
+    api_key_env = llm["api_key_env"]
+    if not isinstance(api_key_env, str) or not api_key_env.isidentifier():
+        errors.append("llm.api_key_env must be a valid environment variable name")
     base_url = llm["base_url"]
     if base_url is not None and not (isinstance(base_url, str) and base_url.startswith(("https://", "http://"))):
         errors.append("llm.base_url must be empty or an http(s) URL")
@@ -308,20 +311,21 @@ def validate(data: dict) -> list[str]:
 # --------------------------------------------------------------- OpenAI key
 
 def get_openai_api_key(root: Path | None = None,
-                       env: Mapping[str, str] | None = None) -> tuple[str | None, str]:
+                       env: Mapping[str, str] | None = None,
+                       api_key_env: str = "OPENAI_API_KEY") -> tuple[str | None, str]:
     """Return ``(key, source)``; source is ``environment``, ``.env`` or ``missing``.
 
     The key is never logged or printed by Champion.
     """
     env = os.environ if env is None else env
-    key = (env.get("OPENAI_API_KEY") or "").strip()
+    key = (env.get(api_key_env) or "").strip()
     if key:
         return key, "environment"
     dotenv_file = (root or project_root()) / ".env"
     if dotenv_file.is_file():
         from dotenv import dotenv_values  # reads the file, does not touch os.environ
 
-        key = (dotenv_values(dotenv_file).get("OPENAI_API_KEY") or "").strip()
+        key = (dotenv_values(dotenv_file).get(api_key_env) or "").strip()
         if key:
             return key, ".env"
     return None, "missing"

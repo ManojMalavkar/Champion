@@ -128,11 +128,22 @@ def test_api_key_from_environment_first(tmp_path):
     assert get_openai_api_key(tmp_path, {"OPENAI_API_KEY": "from-env"}) == ("from-env", "environment")
 
 
+def test_api_key_uses_configured_environment_name(tmp_path):
+    assert get_openai_api_key(tmp_path, {"DATABRICKS_TOKEN": "from-env"}, "DATABRICKS_TOKEN") == (
+        "from-env", "environment"
+    )
+
+
 def test_api_key_from_dotenv_does_not_touch_environ(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     (tmp_path / ".env").write_text("OPENAI_API_KEY=from-file\n")
     assert get_openai_api_key(tmp_path, {}) == ("from-file", ".env")
     assert "OPENAI_API_KEY" not in os.environ
+
+
+def test_configured_api_key_name_from_dotenv(tmp_path):
+    (tmp_path / ".env").write_text("DATABRICKS_TOKEN=from-file\n")
+    assert get_openai_api_key(tmp_path, {}, "DATABRICKS_TOKEN") == ("from-file", ".env")
 
 
 def test_api_key_missing(tmp_path):
