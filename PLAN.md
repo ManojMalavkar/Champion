@@ -75,7 +75,17 @@ What is shared and what is per agent:
 
 #### Step 2 - Access levels, policy and generic file tools
 Levels 1.1, 1.2, 2.1, 2.2, Custom; `scope.py`, hardened `sensitive.py`, `tool_policy.py`; tool wrapper (policy check, output cap, audit record); audit log (SQLite); `filesystem_read`, `filesystem_list`, `filesystem_disk_usage`; `champion chat --level`. Learn: run context, `is_enabled`, why checks live inside tools.
-- [ ] Not started
+- [x] `champion/policy/levels.py`, `sensitive.py` (system folders, secret names, OS folders never written), `scope.py` (`check_path`, no symbolic links, `open_no_symlinks`), `tool_policy.py` (deny by default)
+- [x] `champion/storage/audit.py` (SQLite, mode 600, results not stored)
+- [x] `champion/tools/guard.py` (`run_guarded`, `requires` for `is_enabled`, output cap) and `champion/tools/filesystem.py` (3 read-only tools; `.key` read only if LS-DYNA keyword file; private keys, binary and files of 100 MiB or more refused)
+- [x] Level and audit in `ChampionContext`; `champion chat --level`; chat `/level`, `/level NAME`, `/audit`
+- [x] Tests: `tests/test_policy.py`, `tests/test_filesystem_tools.py`
+- [x] Walkthrough: `docs/steps/02-access-levels.md`
+- [ ] User verified
+
+Verify: `pytest` (103), `champion chat --level 1.1`, then the checks in the walkthrough.
+
+Status: built; 103 tests pass on Databricks serverless; scripted chat checked (blocked read at 1.1, `/level 2.1` allows it, `/proc` blocked at every level, `/audit` rows). Write tools come with the agents that need them; the scope check for writing is already in place and tested.
 
 #### Step 3 - Specialist plug-in interface and orchestrator skeleton
 `champion/specialists/base.py` (`SpecialistSpec`) and `registry.py`; orchestrator built from enabled specialists with `Agent.as_tool`; routing hints and `tool_choice`; contract tests with a dummy specialist (offered to the orchestrator, rejected if a tool has no policy entry). Learn: agents as tools, nested runs.

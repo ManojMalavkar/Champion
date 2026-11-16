@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0 and 1 of 12 (steps 0-11) built: configuration and health check, first agent with a tool in a plain chat. 56 automated tests passing.
+**Status:** steps 0-2 of 12 (steps 0-11) built: configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log. 103 automated tests passing.
 
 ---
 
@@ -25,22 +25,22 @@ It is a rebuild of my earlier projects, mChampion (a Textual terminal UI multi-a
 
 ```mermaid
 flowchart TD
-    U[Engineer] --> UI["CLI chat (step 1) / Textual TUI (step 5)"]
+    U[Engineer] --> UI["CLI chat (steps 1-2) / Textual TUI (step 9)"]
     UI --> RT["Runtime: config, OpenAI client, session, hooks"]
-    RT --> ORC["Orchestrator agent (step 4)"]
-    ORC -->|agent as tool| PD["PyDyna specialist (step 3)"]
-    ORC -->|agent as tool| LX["Linux specialist (step 4)"]
-    ORC -.->|later| AM["ANSA/META specialist"]
-    ORC -.->|later| PR["PRIMER specialist"]
-    PD --> KB["Knowledge tools: ChromaDB keywords, PyDyna API, PyDPF-Post"]
-    PD --> MF["Large-model tools: index, find, read range, patch edit (steps 6-7)"]
-    PD --> RV["Reviewer agent (step 9)"]
-    RV --> EX["Code execution: static check, guard, approval (step 8)"]
+    RT --> ORC["Orchestrator agent (step 3)"]
+    ORC -->|agent as tool| LX["Linux specialist (branch agent/linux)"]
+    ORC -->|agent as tool| PD["PyDyna specialist (branch agent/pydyna)"]
+    ORC -->|agent as tool| AM["ANSA/META specialist (branch agent/ansa-meta)"]
+    ORC -->|agent as tool| PR["PRIMER specialist (branch agent/primer)"]
+    PD & AM & PR --> KB["Knowledge base: vector_db + knowledge-base per agent (step 8)"]
+    PD & PR --> MF["Shared LS-DYNA library: index, find, read range, patch edit (step 6)"]
+    PD & AM & PR --> EX["Code execution: reviewer, static check, approval, batch backends (step 7)"]
     LX --> SH["File and shell tools"]
-    KB & MF & EX & SH --> POL["Access-level policy and audit log (step 2+)"]
+    ORC --> SK["Skills (step 4) and MCP servers (step 5)"]
+    KB & MF & EX & SH & SK --> POL["Access-level policy, tool policy, audit log (step 2, built)"]
 ```
 
-Built so far: CLI chat, runtime, one agent with one tool (`session_info`). The rest is planned in this order.
+Built so far: CLI chat, runtime, one agent with `session_info` and three read-only file tools, access levels, tool policy and audit log. Shared foundations (steps 3-9) are built on `main` first; each specialist is then built on its own branch (Linux, PyDyna, ANSA/META, PRIMER) and merged by pull request.
 
 Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyna_agent` or `linux_agent` like a function and gets an answer back; it never gives up control. Each low-level tool belongs to exactly one specialist, so for example only the PyDyna agent can edit a model.
 
@@ -64,12 +64,17 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | Secrets handling | Key read from environment or `.env`, never printed, not copied into the process environment; online check reports error type only | Done (step 0), tested |
 | Tracing | SDK traces off by default (would send content to OpenAI) | Done (step 1) |
 | Turn limits | `max_turns` stops a looping agent; history limited to the last 10 turns | Done (step 1), tested |
-| Access levels | Every file tool checks the level in the run context (the model cannot change it); secrets, keys, symlinks, `/proc`, `/sys`, `/dev` always blocked | Step 2 |
-| Tool ownership | Write and execute tools exist only on the specialist that needs them | Step 4 |
-| Large-file limits | 100 MiB threshold for large-file mode, hard size limit | Step 6 |
-| Edit approval | Diff shown, user approves, undo available | Step 7 |
-| Code review | Reviewer agent checks policy and intent; approval tied to the exact code hash | Steps 8-9 |
-| Audit | Every tool call recorded | Hooks in step 1, stored from step 5 |
+| Access levels | Every file tool checks the level in the run context (the model cannot change it); only the user changes it (`--level`, `/level`) | Done (step 2), tested for all levels |
+| Fixed blocks | `/proc`, `/sys`, `/dev`, `/root`, protected system files, secret-looking names (`.ssh`, `.env`, `*.pem`, tokens ...) at every level; OS folders never written | Done (step 2), tested |
+| Symbolic links | Refused anywhere in a path; files opened folder by folder with `O_NOFOLLOW`, so a link swapped in after the check is still refused | Done (step 2), tested |
+| Content checks | Private-key blocks refused in any file; `.key` read only if it is an LS-DYNA keyword file; binary files refused; output capped | Done (step 2), tested |
+| Tool policy | Every tool declares its right; a tool without an entry cannot run (deny by default) | Done (step 2), tested |
+| Audit | One row per tool call (allowed, blocked, failed) with reason; results not stored; file mode 600 | Done (step 2), tested |
+| Tool ownership | Write and execute tools exist only on the specialist that needs them | Step 3 and agent branches |
+| MCP rules | Every MCP tool has a policy entry; outbound actions (mail) always approved; web and mail content treated as data | Step 5 |
+| Large-file limits | 100 MiB threshold for large-file mode, hard size limit | Step 6 (reads of 100 MiB or more already refused) |
+| Edit approval | Diff shown, user approves, undo available | Step 6 |
+| Code review | Reviewer agent checks policy and intent; approval tied to the exact code hash | Step 7 |
 
 ## 6. Progress log
 
@@ -84,40 +89,53 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Lessons:** the SDK replaces the hand-written tool loop from the course (lab 3) with `Runner.run`; the run context carries trusted data (like the access level) that tools use but the model never sees.
 * **Issue solved:** `openai-agents` 0.24 needs `openai` 3.x, while `langchain-openai` 1.4 (course labs) needs `openai` 2.x. Solution: a dedicated virtual environment for Champion, documented in the README.
 
+### Planning - shared foundations and agent branches
+* **Decided:** shared parts (policy, plug-ins, skills, MCP, LS-DYNA library, execution, knowledge base, TUI) are built once on `main`; each agent (Linux, PyDyna, ANSA/META, PRIMER) then gets its own branch, merged by pull request, at most two open at a time. Same knowledge layout for every agent (`vector_db/` + `knowledge-base/`); ANSA, META and PRIMER (JavaScript) run in licensed batch mode.
+* **Why:** no agent rebuilds shared code, branches touch separate folders (few merge conflicts), and each merge is a reviewable unit.
+
+### Step 2 - Access levels, policy and read-only file tools
+* **Built:** five access levels, fixed blocks for system and secret paths, a path check that refuses symbolic links, a tool-policy registry (deny by default), a tool guard used by every tool (policy, level, output cap, audit), an SQLite audit log, three read-only tools (`filesystem_list`, `filesystem_read`, `filesystem_disk_usage`), `champion chat --level`, and chat commands `/level` and `/audit`.
+* **Evidence:** 103 tests (47 new): every level against inside/outside and read/write; links refused, including one created after the check; `.env` text never reaches the model even at level 2.2; a custom level without read hides the file tools from the model; audit rows for allowed and blocked calls. A scripted chat shows a read blocked at 1.1, `/level 2.1`, the same read allowed, `/proc` blocked at every level.
+* **Lessons:** security checks belong inside the tools, not in the prompt; `is_enabled` only controls what the model sees. Refusing links is simpler and safer than resolving them. LS-DYNA's `.key` extension needs a content check instead of a name rule.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
 | --- | --- | --- | --- |
 | 0 | 40 | `core/config.py`, `doctor.py`, `cli.py` | Step 0 |
 | 1 | 56 | `core/runtime.py`, `core/context.py`, `core/hooks.py`, `agents/assistant.py`, `tools/session_info.py`, `chat.py` | Step 1 |
+| 2 | 103 | `policy/levels.py`, `policy/sensitive.py`, `policy/scope.py`, `policy/tool_policy.py`, `storage/audit.py`, `tools/guard.py`, `tools/filesystem.py` | Step 2 |
 
 ## 8. Demo script (current state)
 
 About 5 minutes. Run from the project folder with the virtual environment active.
 
 1. `champion --version` and `champion doctor` - show the health table and that the key is "found (value not shown)".
-2. `pytest -q` - 56 tests pass in a few seconds without calling OpenAI.
-3. `champion chat`:
+2. `pytest -q` - 103 tests pass in a few seconds without calling OpenAI.
+3. `champion chat --level 1.1` in a folder with a few `.k` files:
    * "What is my access level and which folder am I in?" - point out the `-> session_info({})` line: the agent decided to call a tool instead of guessing.
+   * "What files are here?" - `filesystem_list`; `.env` is hidden.
+   * "Show the start of <model>.k" - `filesystem_read`.
+   * "Read /etc/hostname" - `BLOCKED ... outside the working folder`; the agent explains and suggests `/level`. Type `/level 2.1` and ask again - allowed.
+   * "Read /proc/self/environ" or ".env" - blocked even at 2.2.
+   * `/audit` - every call with its decision and reason.
    * "My name is Manoj", then "What is my name?" - session memory; `/new` and ask again - forgotten.
-   * "List the files here" - the agent says it cannot yet, instead of inventing a listing.
-   * `/usage` - token usage for cost awareness.
-4. Open `docs/steps/01-first-agent.md` and `champion/core/runtime.py` - explain Agent vs. Runner and the run context.
+4. Open `champion/policy/scope.py` and `champion/tools/guard.py` - explain why checks live in the tools and why links are refused.
 
-This section grows with each step (for example step 2: show a blocked read outside the working folder at level 1.1).
+This section grows with each step.
 
 ## 9. Testing approach
 
 * **Fake model:** `tests/fake_model.py` implements the SDK model interface with scripted replies, so agent behaviour (tool calls, history, limits, errors) is tested without network or cost.
-* **Security tests:** the key never appears in output or results; invalid configuration is rejected; API errors are shown without their message text.
+* **Security tests:** the key never appears in output or results; invalid configuration is rejected; API errors are shown without their message text; every access level is tested against inside/outside and read/write; secret file content never reaches the model.
 * **Sync tests:** the example configuration must match the built-in defaults exactly.
 * **Each step:** all earlier tests must still pass before a commit.
 
 ## 10. Limitations and next steps
 
 * Not yet verified end to end with a real model answer (needs the key on the Linux machine).
-* No file access yet; access levels are configured but enforced from step 2.
-* Next: step 2 (access levels and file tools), then the PyDyna specialist (step 3) and the orchestrator (step 4).
+* Only read-only file tools so far; write tools come with the agents that need them (the write check is in place and tested).
+* Next: step 3 (specialist plug-in interface and orchestrator), then skills (4) and MCP (5); the Linux agent branch can start after step 5.
 * Later: ANSA/META and PRIMER specialists, a sandboxed execution backend, a company gateway via `llm.base_url`.
 
 ## 11. Likely questions

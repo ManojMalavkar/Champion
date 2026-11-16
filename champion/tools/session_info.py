@@ -17,6 +17,10 @@ from agents import RunContextWrapper, function_tool
 
 from champion import __version__
 from champion.core.context import ChampionContext
+from champion.policy.tool_policy import ToolRule, register
+from champion.tools.guard import run_guarded
+
+register(ToolRule("session_info", "none", "Facts about the session; reads no files"))
 
 
 def describe_session(context: ChampionContext) -> dict:
@@ -28,7 +32,8 @@ def describe_session(context: ChampionContext) -> dict:
         "session_started": context.started_at.isoformat(timespec="seconds"),
         "working_directory": str(context.working_directory),
         "access_level": context.access_level,
-        "access_level_enforced": False,  # enforced from step 2
+        "access": context.level.describe(),
+        "access_level_enforced": True,
         "enabled_specialists": sorted(name for name, a in agents.items() if a.get("enabled", True)),
         "specialists_available_now": [],  # added in steps 3 and 4
         "model": context.config.get("llm.model_id"),
@@ -36,9 +41,10 @@ def describe_session(context: ChampionContext) -> dict:
 
 
 @function_tool
-def session_info(ctx: RunContextWrapper[ChampionContext]) -> str:
+async def session_info(ctx: RunContextWrapper[ChampionContext]) -> str:
     """Get facts about the current Champion session: version, local date and time,
-    working directory, selected access level, configured specialists and model.
-    Use it when the user asks about the session, the time or date, the folder or
-    the access level. It reads no files."""
-    return json.dumps(describe_session(ctx.context), indent=2)
+    working directory, selected access level (what may be read and written),
+    configured specialists and model. Use it when the user asks about the session,
+    the time or date, the folder or the access level. It reads no files."""
+    return await run_guarded(ctx, "session_info", {},
+                             lambda: json.dumps(describe_session(ctx.context), indent=2))

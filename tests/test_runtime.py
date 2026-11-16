@@ -80,9 +80,10 @@ def test_tool_call_then_answer(tmp_path):
     assert [e.phase for e in seen] == ["start", "end"]
     assert turn.tool_events[0].tool == "session_info"
     assert turn.usage.requests == 2 and turn.usage.total_tokens == 240
-    # first call: the agent's instructions and its single tool are sent to the model
+    # first call: the agent's instructions and its tools are sent to the model
     assert "You are Champion" in model.calls[0]["instructions"]
-    assert model.calls[0]["tools"] == ["session_info"]
+    assert model.calls[0]["tools"] == ["session_info", "filesystem_list", "filesystem_read",
+                                        "filesystem_disk_usage"]
     # second call: the tool result was sent back to the model
     outputs = [i for i in model.calls[1]["input"] if isinstance(i, dict) and i.get("type") == "function_call_output"]
     assert json.loads(outputs[0]["output"])["access_level"] == "1.1"
@@ -131,7 +132,8 @@ def test_session_info_content(tmp_path):
     config = make_config(tmp_path, "policy:\n  default_level: '2.1'\n")
     info = describe_session(ChampionContext.from_config(config))
     assert info["access_level"] == "2.1"
-    assert info["access_level_enforced"] is False
+    assert info["access_level_enforced"] is True
+    assert "read the working folder and outside it" in info["access"]
     assert info["working_directory"] == str(tmp_path.resolve())
     assert info["enabled_specialists"] == ["linux_coder", "pydyna"]
     assert SECRET not in json.dumps(info)

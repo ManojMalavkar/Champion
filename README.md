@@ -2,7 +2,7 @@
 
 Multi-agent CAE assistant (PyDyna / LS-DYNA and Linux) built on the OpenAI Agents SDK. Rebuild of mChampion, developed step by step; see `PLAN.md` for the steps and `docs/steps/` for a walkthrough of each one.
 
-Current state: step 1 (configuration, `champion doctor`, and a first agent in `champion chat` with one tool, `session_info`).
+Current state: step 2 (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log).
 
 ## Install
 
@@ -44,7 +44,19 @@ champion chat                                   # interactive: /help, /new, /usa
 champion chat -q "What time is it and which folder am I in?"
 ```
 
-Tool calls are printed as `-> tool(arguments)` and `<- tool: N chars`. Only the last `orchestration.history_turns` turns (10) are sent with each question; `/new` starts a fresh conversation.
+Tool calls are printed as `-> tool(arguments)` and `<- tool: N chars` (or the BLOCKED / ERROR reason). Only the last `orchestration.history_turns` turns (10) are sent with each question; `/new` starts a fresh conversation.
+
+## Access levels
+
+| Level | Read | Write |
+| --- | --- | --- |
+| 1.1 (default) | working folder | nothing |
+| 1.2 | working folder | working folder |
+| 2.1 | working folder and outside | nothing |
+| 2.2 | working folder and outside | working folder and outside |
+| custom | `policy.custom.read` (+ `extra_dirs`) | `policy.custom.write` |
+
+Choose with `champion chat --level 2.1` or `/level 2.1` in the chat (`/level` alone shows the current one). Always blocked: `/proc`, `/sys`, `/dev`, `/root`, protected system files, secret-looking names (`.ssh`, `.env`, `*.pem`, tokens, passwords), private keys, symbolic links; OS folders such as `/etc` and `/usr` are never written. Every tool call is recorded in the audit log (`storage.audit_db`); `/audit` shows the calls of the current chat.
 
 ## Safety notes
 

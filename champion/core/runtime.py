@@ -12,6 +12,8 @@ Design points:
 * Conversation memory is an in-memory ``SQLiteSession``; only the last
   ``orchestration.history_turns`` turns are sent with each request, which keeps
   cost and context size bounded. ``new_session()`` forgets everything.
+* The access level (``level`` argument, else ``policy.default_level``) and
+  the audit log (``storage.audit_db``) live in the run context (step 2).
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from openai import AsyncOpenAI
 from champion.core.config import PLACEHOLDER_MODEL, Config, get_openai_api_key
 from champion.core.context import ChampionContext
 from champion.core.hooks import ToolEvent, ToolEventRecorder
+from champion.storage.audit import AuditLog
 
 
 class RuntimeSetupError(RuntimeError):
@@ -99,11 +102,13 @@ class TurnResult:
 class ChampionRuntime:
     def __init__(self, config: Config, *, model: Model | None = None,
                  env: Mapping[str, str] | None = None,
-                 agent_factory: Callable[[Model], Agent] | None = None) -> None:
+                 agent_factory: Callable[[Model], Agent] | None = None,
+                 level: str | None = None, audit: AuditLog | None = None) -> None:
         from champion.agents.assistant import build_assistant
 
         self.config = config
-        self.context = ChampionContext.from_config(config)
+        self.audit = audit if audit is not None else AuditLog(config.get("storage.audit_db"))
+        self.context = ChampionContext.from_config(config, level=level, audit=self.audit)
         self.model = model if model is not None else build_model(config, build_client(config, env))
         self.agent = (agent_factory or build_assistant)(self.model)
         self.run_config = make_run_config(config)
