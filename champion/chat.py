@@ -1,4 +1,4 @@
-"""Plain command-line chat (step 1). Replaced by the Textual TUI in step 5.
+"""Plain command-line chat (steps 1-2). Replaced by the Textual TUI in step 9.
 
 ``read_line`` and ``write`` are parameters so tests can drive the chat without
 a terminal. One event loop runs the whole chat, because the OpenAI client must
@@ -13,14 +13,19 @@ from typing import Callable
 from agents.exceptions import MaxTurnsExceeded
 
 from champion import __version__
+from champion.core.config import ACCESS_LEVELS
 from champion.core.hooks import ToolEvent
 from champion.core.runtime import ChampionRuntime
+from champion.policy.levels import BUILT_IN
 
 HELP = """Commands:
-  /help   show this help
-  /new    start a new conversation (forget history)
-  /usage  tokens used in this chat
-  /exit   quit (also /quit or Ctrl-D)"""
+  /help          show this help
+  /level         show the access level and the levels you can choose
+  /level NAME    change the access level (1.1, 1.2, 2.1, 2.2, custom)
+  /audit         last tool calls of this chat (from the audit log)
+  /new           start a new conversation (forget history)
+  /usage         tokens used in this chat
+  /exit          quit (also /quit or Ctrl-D)"""
 
 
 def describe_error(exc: Exception) -> str:
@@ -40,7 +45,31 @@ def describe_error(exc: Exception) -> str:
 def format_event(event: ToolEvent) -> str:
     if event.phase == "start":
         return f"  -> {event.tool}({event.arguments})"
+    for marker in ("BLOCKED", "ERROR"):
+        if event.result_preview.startswith(marker + ":"):
+            return f"  <- {event.tool}: {event.result_preview[:160]}"
     return f"  <- {event.tool}: {event.result_chars} chars in {event.seconds:.2f} s"
+
+
+def level_command(runtime: ChampionRuntime, argument: str) -> str:
+    context = runtime.context
+    if not argument:
+        lines = [f"Access level {context.level.describe()}", "Levels:"]
+        lines += [f"  {level.describe()}" for level in BUILT_IN.values()]
+        lines.append("  custom: from policy.custom in config.yaml")
+        return "\n".join(lines)
+    if argument.lower() not in ACCESS_LEVELS:
+        return f"Unknown level {argument}; choose one of {', '.join(ACCESS_LEVELS)}"
+    level = context.set_level(argument)
+    return f"Access level is now {level.describe()}"
+
+
+def audit_command(runtime: ChampionRuntime, limit: int = 10) -> str:
+    rows = runtime.audit.recent(limit)
+    if not rows:
+        return "No tool calls in this chat yet."
+    return "\n".join(f"  {r['ts'][11:19]} {r['access_level']:>6} {r['decision']:<5} {r['tool']} {r['arguments']}"
+                     + (f" - {r['reason']}" if r["reason"] else "") for r in rows)
 
 
 async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], None]) -> bool:
@@ -61,7 +90,7 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
 async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = input,
                     write: Callable[[str], None] = print) -> None:
     write(f"Champion {__version__} - model {runtime.config.get('llm.model_id')}, "
-          f"access level {runtime.context.access_level} (not enforced yet). /help for commands.")
+          f"access level {runtime.context.level.describe()}. /help for commands.")
     while True:
         try:
             line = (await asyncio.to_thread(read_line, "you> ")).strip()
@@ -72,8 +101,13 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
             continue
         if line in ("/exit", "/quit"):
             break
+        command, _, argument = line.partition(" ")
         if line == "/help":
             write(HELP)
+        elif command == "/level":
+            write(level_command(runtime, argument.strip()))
+        elif line == "/audit":
+            write(audit_command(runtime))
         elif line == "/new":
             runtime.new_session()
             write("New conversation started.")

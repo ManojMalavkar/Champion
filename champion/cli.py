@@ -10,7 +10,7 @@ import argparse
 import sys
 
 from champion import __version__
-from champion.core.config import ConfigError, load_config
+from champion.core.config import ACCESS_LEVELS, ConfigError, load_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat = commands.add_parser("chat", help="chat with Champion in the terminal")
     chat.add_argument("-q", "--question", help="ask one question, print the answer and exit")
+    chat.add_argument("--level", choices=ACCESS_LEVELS,
+                      help="access level for this chat (default: policy.default_level)")
     return parser
 
 
@@ -53,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         from champion.core.runtime import ChampionRuntime, RuntimeSetupError
 
         try:
-            runtime = ChampionRuntime(config)
+            runtime = ChampionRuntime(config, level=args.level)
         except RuntimeSetupError as exc:
             print(f"Cannot start: {exc}", file=sys.stderr)
             return 2
