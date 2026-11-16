@@ -6,7 +6,7 @@ The full design (access levels, large-file handling, code review and execution, 
 
 ## Key decisions
 * Framework: OpenAI Agents SDK (`openai-agents`) only; specialists are used as tools (`Agent.as_tool`), never handoffs. No adapter layer for other frameworks (LangGraph, CrewAI): the safety core (config, levels, blocked paths, tool rules, audit) and the tool logic are plain Python, so only the agent wiring and the runtime would change if needed.
-* Provider: direct OpenAI API key, read from the environment variable named in `llm.api_key_env` (default `OPENAI_API_KEY`) or `.env`. One client factory, so a gateway `base_url` can be set later.
+* Provider: `llm.provider: databricks` (the project setup in `config/config.example.yaml`): models `system.ai.*` through the workspace Unity AI Gateway (`llm.base_url` = `https://<workspace>/ai-gateway/mlflow/v1`, Chat Completions API, so the runtime uses `OpenAIChatCompletionsModel`), token from `DATABRICKS_TOKEN` (`llm.api_key_env`) or `.env`. Legacy `/serving-endpoints` are refused by config validation; SDK tracing must stay off. `llm.provider: openai` (Responses API, `OPENAI_API_KEY`) remains the built-in default.
 * UI: Textual terminal UI (fast demo step 6; earlier steps use a plain command line).
 * Build order: fast demo order (below) first, as soon as possible for the interview; everything on `main` until the demo; the rest of the roadmap follows after the demo.
 * Access levels chosen by the user: 1.1 working dir read only, 1.2 working dir read/write, 2.1 working dir + outside read only, 2.2 working dir + outside read/write, Custom. Secret files, symlinks, private keys, `/proc`, `/sys`, `/dev` always blocked.
@@ -84,13 +84,14 @@ Goal: a working multi-agent demo for the interview as soon as possible. Decided 
 | - | Demo ready | Final demo script, real-key run on the Linux machine | Interview |
 
 ### Step 2a - Small fixes
-* Fix `tests/test_doctor.py::test_online_check_reports_error_type_only`: the config text has no `llm:` line, so `api_key_env` and `model_ids` are not applied (start the text with `llm:\n  model_id: test-model\n`).
-* Fix `tests/test_config.py::test_example_config_matches_defaults`: `config/config.example.yaml` has `api_key_env: DATABRICKS_TOKEN` but the default in `config.py` is `OPENAI_API_KEY`; the user decides which one is right and both are aligned.
+- [x] Fix `tests/test_doctor.py::test_online_check_reports_error_type_only` (config text now starts with `llm:`).
+- [x] Databricks AI Gateway provider: `llm.provider: databricks` (case-insensitive), validation (AI Gateway URL required, tracing off), `OpenAIChatCompletionsModel` in the runtime, Chat Completions check in `champion doctor --online`; example config uses the user's `llm` block (14 `system.ai` models). `test_example_config_matches_defaults` now compares every section except the `llm` values. New tests for provider, validation, model class and doctor.
+- [x] Checked live on the workspace gateway: `champion chat -q` with `system.ai.claude-haiku-4-5` called `session_info` and answered; `champion doctor --online`: 8 models OK, the 6 `claude-opus-*` models HTTP 403 (no permission for this user).
 * Optional, if the user agrees: render final answers as Markdown in the plain chat with `rich` (plain text when output is not a terminal, `champion chat --plain`).
-* REPORT.md: configurable `llm.api_key_env`, Responses API check in `champion doctor --online`.
-- [ ] Not started
+* REPORT.md: Databricks AI Gateway provider, configurable `llm.api_key_env`, per-model check in `champion doctor --online`.
+- [ ] Optional Markdown rendering, REPORT.md update
 
-Verify: `pytest` (all pass).
+Verify: `pytest` (112 pass), `champion doctor --online`, `champion chat -q "Which folder am I in?"`.
 
 ### Step 3 - Orchestrator and specialist plug-in interface
 `champion/specialists/base.py` (`SpecialistSpec`: name, description, instructions, tools, routing hints, enabled flag) and `registry.py`; orchestrator built from the enabled specialists with `Agent.as_tool`; `session_info` and the generic file tools stay on the orchestrator; contract tests with a dummy specialist (offered to the orchestrator, rejected if a tool has no policy entry); the chat shows which specialist was called. Learn: agents as tools, nested runs.

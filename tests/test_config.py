@@ -26,8 +26,21 @@ def load(tmp_path: Path, text: str):
 
 def test_example_config_matches_defaults():
     # Keeps config.example.yaml and DEFAULTS in sync: every default is documented.
+    # The llm section is the project's real setup (Databricks AI Gateway), so only
+    # its keys must match; every other section must equal the defaults exactly.
     raw = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
-    assert raw == DEFAULTS
+    assert set(raw) == set(DEFAULTS)
+    assert set(raw["llm"]) == set(DEFAULTS["llm"])
+    assert {k: v for k, v in raw.items() if k != "llm"} == {k: v for k, v in DEFAULTS.items() if k != "llm"}
+
+
+def test_example_config_uses_the_ai_gateway(tmp_path):
+    config = load(tmp_path, EXAMPLE.read_text(encoding="utf-8"))
+    assert config.get("llm.provider") == "databricks"  # "DATABRICKS" in the file
+    assert "/ai-gateway/mlflow/v1" in config.get("llm.base_url")
+    assert config.get("llm.api_key_env") == "DATABRICKS_TOKEN"
+    assert config.get("llm.model_id").startswith("system.ai.")
+    assert all(m.startswith("system.ai.") for m in config.get("llm.model_ids"))
 
 
 def test_example_config_loads_without_warnings(tmp_path):
@@ -95,6 +108,10 @@ def test_level_is_normalised(tmp_path, value, expected):
     ("execution:\n  require_approval: 'yes'\n", "execution.require_approval"),
     ("llm:\n  provider: bedrock\n", "llm.provider"),
     ("llm:\n  base_url: ftp://x\n", "llm.base_url"),
+    ("llm:\n  provider: databricks\n", "AI Gateway URL"),
+    ("llm:\n  provider: databricks\n  base_url: https://adb-1.azuredatabricks.net/serving-endpoints\n", "AI Gateway URL"),
+    ("llm:\n  provider: databricks\n  base_url: https://adb-1.azuredatabricks.net/ai-gateway/mlflow/v1\n  tracing: true\n",
+     "llm.tracing must be false"),
     ("llm: 5\n", "'llm' must be a mapping"),
 ])
 def test_invalid_values_are_rejected(tmp_path, text, message):

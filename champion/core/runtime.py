@@ -7,7 +7,11 @@ the agent answers with text or ``orchestration.max_steps`` turns are used.
 Design points:
 * One ``AsyncOpenAI`` client, created here with the key from
   ``get_openai_api_key``; the key is not put in ``os.environ`` or a global.
-  ``llm.base_url`` can later point the same client at a gateway.
+  ``llm.base_url`` can point the same client at a gateway. With
+  ``llm.provider: databricks`` it is the workspace Unity AI Gateway
+  (``/ai-gateway/mlflow/v1``), which speaks the Chat Completions API, so the
+  model is ``OpenAIChatCompletionsModel``; with ``openai`` it is
+  ``OpenAIResponsesModel``.
 * Tracing is off unless ``llm.tracing`` is true (SDK traces go to OpenAI).
 * Conversation memory is an in-memory ``SQLiteSession``; only the last
   ``orchestration.history_turns`` turns are sent with each request, which keeps
@@ -23,7 +27,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
-from agents import Agent, OpenAIResponsesModel, RunConfig, Runner, SQLiteSession
+from agents import (Agent, OpenAIChatCompletionsModel, OpenAIResponsesModel, RunConfig, Runner,
+                    SQLiteSession)
 from agents.models.interface import Model
 from openai import AsyncOpenAI
 
@@ -51,6 +56,8 @@ def build_model(config: Config, client: AsyncOpenAI) -> Model:
     model_id = config.get("llm.model_id")
     if model_id == PLACEHOLDER_MODEL:
         raise RuntimeSetupError("llm.model_id is not set in config.yaml; run 'champion doctor'")
+    if config.get("llm.provider") == "databricks":
+        return OpenAIChatCompletionsModel(model=model_id, openai_client=client)
     return OpenAIResponsesModel(model=model_id, openai_client=client)
 
 

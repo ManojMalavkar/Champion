@@ -4,15 +4,30 @@
 # Relative paths: execution.working_directory is relative to the folder you start
 # Champion from; all other paths are relative to the project root (the folder
 # that contains config/).
-# The OpenAI key is NOT set here: use the OPENAI_API_KEY environment variable
-# or a .env file in the project root (chmod 600 .env).
+# The API token is NOT set here: put it in the environment variable named by
+# llm.api_key_env (DATABRICKS_TOKEN below; OPENAI_API_KEY for provider openai)
+# or in a .env file in the project root (chmod 600 .env).
 
 llm:
-  provider: openai
-  model_id: REPLACE_WITH_MODEL_ID   # an OpenAI model that supports tool calling
-  model_ids: []                     # optional fallback models, tried in order
+  provider: DATABRICKS              # openai (OpenAI API) or databricks (workspace Unity AI Gateway)
+  model_id: system.ai.claude-haiku-4-5              # efficient model; supports tool calling
+  model_ids:                        # additional models; runtime fallback is not implemented yet
+    # Claude
+    - system.ai.claude-haiku-5-5
+    - system.ai.claude-sonnet-4-5
+    - system.ai.claude-sonnet-4-6
+    - system.ai.claude-sonnet-5
+    - system.ai.claude-sonnet-5-5
+    - system.ai.claude-opus-4-6
+    - system.ai.claude-opus-4-7
+    - system.ai.claude-opus-4-8
+    - system.ai.claude-opus-5
+    - system.ai.claude-opus-5-5
+    - system.ai.claude-opus-4-5
+    - system.ai.gpt-oss-120b
+    - system.ai.gpt-oss-20b
   api_key_env: DATABRICKS_TOKEN     # name of the environment variable containing the API token
-  base_url: null                    # null = api.openai.com (set later for a gateway)
+  base_url: https://adb-5678659344564033.13.azuredatabricks.net/ai-gateway/mlflow/v1                   # null = api.openai.com (set later for a gateway)
   tracing: false                    # true would send SDK traces to OpenAI
 
 orchestration:

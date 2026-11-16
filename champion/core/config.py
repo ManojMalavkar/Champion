@@ -39,6 +39,10 @@ ACCESS_LEVELS = ("1.1", "1.2", "2.1", "2.2", "custom")
 CUSTOM_SCOPES = ("none", "working", "outside")
 PLACEHOLDER_MODEL = "REPLACE_WITH_MODEL_ID"
 
+# openai: OpenAI API (Responses API). databricks: Unity AI Gateway of a
+# Databricks workspace (OpenAI-compatible Chat Completions API).
+PROVIDERS = ("openai", "databricks")
+
 DEFAULTS: dict[str, Any] = {
     "llm": {
         "provider": "openai",
@@ -252,8 +256,10 @@ def validate(data: dict) -> list[str]:
             errors.append(f"{dotted} must be true or false (got {get(dotted)!r})")
 
     llm = data["llm"]
-    if llm["provider"] != "openai":
-        errors.append(f"llm.provider must be 'openai' (got {llm['provider']!r})")
+    if isinstance(llm["provider"], str):
+        llm["provider"] = llm["provider"].strip().lower()
+    if llm["provider"] not in PROVIDERS:
+        errors.append(f"llm.provider must be one of {', '.join(PROVIDERS)} (got {llm['provider']!r})")
     if not isinstance(llm["model_id"], str) or not llm["model_id"].strip():
         errors.append("llm.model_id must be a non-empty text")
     if not isinstance(llm["model_ids"], list) or not all(isinstance(m, str) and m for m in llm["model_ids"]):
@@ -264,6 +270,15 @@ def validate(data: dict) -> list[str]:
     base_url = llm["base_url"]
     if base_url is not None and not (isinstance(base_url, str) and base_url.startswith(("https://", "http://"))):
         errors.append("llm.base_url must be empty or an http(s) URL")
+    if llm["provider"] == "databricks":
+        # Databricks models are reached only through the Unity AI Gateway
+        # (Chat Completions API); legacy /serving-endpoints are not allowed.
+        if not (isinstance(base_url, str) and "/ai-gateway/" in base_url):
+            errors.append("llm.base_url must be the workspace AI Gateway URL "
+                          "(https://<workspace>/ai-gateway/mlflow/v1) when llm.provider is databricks")
+        if llm["tracing"] is True:
+            errors.append("llm.tracing must be false when llm.provider is databricks "
+                          "(SDK traces would be sent to OpenAI)")
     boolean("llm.tracing")
 
     positive_int("orchestration.max_steps", 50)

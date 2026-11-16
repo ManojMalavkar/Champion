@@ -44,6 +44,19 @@ def test_missing_key_or_model_is_a_setup_error(tmp_path):
         build_model(placeholder, build_client(config, env={"OPENAI_API_KEY": SECRET}))
 
 
+def test_model_class_follows_the_provider(tmp_path):
+    from agents import OpenAIChatCompletionsModel, OpenAIResponsesModel
+
+    openai_config = make_config(tmp_path)
+    client = build_client(openai_config, env={"OPENAI_API_KEY": SECRET})
+    assert isinstance(build_model(openai_config, client), OpenAIResponsesModel)
+    gateway = make_config(tmp_path, "  provider: DATABRICKS\n  api_key_env: DATABRICKS_TOKEN\n"
+                                    "  base_url: https://adb-1.azuredatabricks.net/ai-gateway/mlflow/v1\n")
+    client = build_client(gateway, env={"DATABRICKS_TOKEN": SECRET})
+    assert str(client.base_url).startswith("https://adb-1.azuredatabricks.net/ai-gateway/mlflow/v1")
+    assert isinstance(build_model(gateway, client), OpenAIChatCompletionsModel)
+
+
 def test_tracing_off_by_default(tmp_path):
     assert make_run_config(make_config(tmp_path)).tracing_disabled is True
     assert make_run_config(make_config(tmp_path, "  tracing: true\n")).tracing_disabled is False

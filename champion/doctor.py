@@ -160,7 +160,11 @@ def check_paths(config: Config) -> list[CheckResult]:
 
 
 def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[CheckResult]:
-    """Check the primary model and configured alternatives with Responses API calls."""
+    """Check the primary model and configured alternatives with one small request each.
+
+    ``openai``: Responses API. ``databricks``: Chat Completions API on the
+    workspace Unity AI Gateway (``llm.base_url``).
+    """
     key, _ = get_openai_api_key(config.root, env, config.get("llm.api_key_env"))
     if key is None:
         return [CheckResult("OpenAI connection", FAIL, "skipped: no key")]
@@ -178,15 +182,24 @@ def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[C
         code = f" (HTTP {status})" if status else ""
         return [CheckResult("OpenAI connection", FAIL, f"{type(exc).__name__}{code}")]
 
+    chat = config.get("llm.provider") == "databricks"
     results = []
     for model in models:
         try:
-            client.responses.create(
-                model=model,
-                max_output_tokens=16,
-                input=[{"role": "user", "content": [{"type": "input_text", "text": "Reply with OK."}]}],
-            )
-            results.append(CheckResult(f"Model {model}", OK, "Responses API succeeded"))
+            if chat:
+                client.chat.completions.create(
+                    model=model,
+                    max_tokens=16,
+                    messages=[{"role": "user", "content": "Reply with OK."}],
+                )
+            else:
+                client.responses.create(
+                    model=model,
+                    max_output_tokens=16,
+                    input=[{"role": "user", "content": [{"type": "input_text", "text": "Reply with OK."}]}],
+                )
+            api = "Chat Completions API (AI Gateway)" if chat else "Responses API"
+            results.append(CheckResult(f"Model {model}", OK, f"{api} succeeded"))
         except Exception as exc:  # report the error type only; messages may echo request details
             status = getattr(exc, "status_code", None)
             code = f" (HTTP {status})" if status else ""

@@ -123,7 +123,8 @@ def test_online_check_reports_error_type_only(tmp_path, monkeypatch):
 
     responses = FakeResponses()
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
-    config = make_config(tmp_path, "  api_key_env: DATABRICKS_TOKEN\n  model_ids:\n    - bad-model\n    - last-model\n")
+    config = make_config(tmp_path, "llm:\n  model_id: test-model\n  api_key_env: DATABRICKS_TOKEN\n"
+                                   "  model_ids:\n    - bad-model\n    - last-model\n")
     result = doctor.check_online(config, env={"DATABRICKS_TOKEN": SECRET})
     assert [item.name for item in result] == ["Model test-model", "Model bad-model", "Model last-model"]
     assert [item.status for item in result] == [OK, FAIL, OK]
@@ -147,6 +148,29 @@ def test_online_check_ok(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
     results = doctor.check_online(make_config(tmp_path), env={"OPENAI_API_KEY": SECRET})
     assert len(results) == 1 and results[0].status == OK
+
+
+def test_online_check_databricks_uses_chat_completions(tmp_path, monkeypatch):
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            assert kwargs["api_key"] == SECRET
+            assert kwargs["base_url"].endswith("/ai-gateway/mlflow/v1")
+            self.chat = types.SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
+    config = make_config(tmp_path, "llm:\n  provider: databricks\n  model_id: system.ai.claude-haiku-4-5\n"
+                                   "  api_key_env: DATABRICKS_TOKEN\n"
+                                   "  base_url: https://adb-1.azuredatabricks.net/ai-gateway/mlflow/v1\n")
+    results = doctor.check_online(config, env={"DATABRICKS_TOKEN": SECRET})
+    assert [(r.name, r.status) for r in results] == [("Model system.ai.claude-haiku-4-5", OK)]
+    assert "Chat Completions API (AI Gateway)" in results[0].detail
+    assert calls[0]["model"] == "system.ai.claude-haiku-4-5" and calls[0]["messages"][0]["role"] == "user"
 
 
 def test_online_check_without_key(tmp_path):
