@@ -11,7 +11,7 @@ llm:
   provider: openai
   model_id: REPLACE_WITH_MODEL_ID   # an OpenAI model that supports tool calling
   model_ids: []                     # optional fallback models, tried in order
-  api_key_env: DATABRICKS_TOKEN     # name of the environment variable containing the API token
+  api_key_env: OPENAI_API_KEY       # name of the environment variable containing the API token
   base_url: null                    # null = api.openai.com (set later for a gateway)
   tracing: false                    # true would send SDK traces to OpenAI
 
