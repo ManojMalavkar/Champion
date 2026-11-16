@@ -31,7 +31,7 @@ Config file lookup: `--config PATH`, else `CHAMPION_CONFIG`, else `config/config
 ```bash
 champion --version
 champion doctor            # local checks only
-champion doctor --online   # plus one API call to check the key and model
+champion doctor --online   # one small API request per configured model
 pytest
 ```
 

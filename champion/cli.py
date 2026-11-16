@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = commands.add_parser("doctor", help="check that Champion is ready to run")
     doctor.add_argument("--online", action="store_true",
-                        help="also make one OpenAI API call to check the key and model")
+                        help="also check the key and each configured model with the Responses API")
 
     chat = commands.add_parser("chat", help="chat with Champion in the terminal")
     chat.add_argument("-q", "--question", help="ask one question, print the answer and exit")

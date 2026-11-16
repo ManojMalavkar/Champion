@@ -159,26 +159,39 @@ def check_paths(config: Config) -> list[CheckResult]:
     return results
 
 
-def check_online(config: Config, env: Mapping[str, str] | None = None) -> CheckResult:
-    """Make one Responses API call to confirm the configured endpoint works."""
+def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[CheckResult]:
+    """Check the primary model and configured alternatives with Responses API calls."""
     key, _ = get_openai_api_key(config.root, env, config.get("llm.api_key_env"))
-    model = config.get("llm.model_id")
     if key is None:
-        return CheckResult("OpenAI connection", FAIL, "skipped: no key")
+        return [CheckResult("OpenAI connection", FAIL, "skipped: no key")]
+
+    models = list(dict.fromkeys([
+        config.get("llm.model_id"),
+        *(config.get("llm.model_ids") or []),
+    ]))
     try:
         from openai import OpenAI
 
         client = OpenAI(api_key=key, base_url=config.get("llm.base_url"), timeout=15, max_retries=0)
-        client.responses.create(
-            model=model,
-            max_output_tokens=16,
-            input=[{"role": "user", "content": [{"type": "input_text", "text": "Reply with OK."}]}],
-        )
-        return CheckResult("OpenAI connection", OK, f"Responses API succeeded for model '{model}'")
     except Exception as exc:  # report the error type only; messages may echo request details
         status = getattr(exc, "status_code", None)
         code = f" (HTTP {status})" if status else ""
-        return CheckResult("OpenAI connection", FAIL, f"{type(exc).__name__}{code} for model '{model}'")
+        return [CheckResult("OpenAI connection", FAIL, f"{type(exc).__name__}{code}")]
+
+    results = []
+    for model in models:
+        try:
+            client.responses.create(
+                model=model,
+                max_output_tokens=16,
+                input=[{"role": "user", "content": [{"type": "input_text", "text": "Reply with OK."}]}],
+            )
+            results.append(CheckResult(f"Model {model}", OK, "Responses API succeeded"))
+        except Exception as exc:  # report the error type only; messages may echo request details
+            status = getattr(exc, "status_code", None)
+            code = f" (HTTP {status})" if status else ""
+            results.append(CheckResult(f"Model {model}", FAIL, f"{type(exc).__name__}{code}"))
+    return results
 
 
 def run_checks(config: Config, *, online: bool = False,
@@ -191,7 +204,7 @@ def run_checks(config: Config, *, online: bool = False,
         except Exception as exc:  # a broken check must not hide the others
             results.append(CheckResult("Doctor", FAIL, f"check crashed: {type(exc).__name__}: {exc}"))
     if online:
-        results.append(check_online(config, env))
+        results.extend(check_online(config, env))
     return results
 
 

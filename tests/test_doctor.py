@@ -108,20 +108,28 @@ def test_online_check_reports_error_type_only(tmp_path, monkeypatch):
         status_code = 401
 
     class FakeResponses:
+        def __init__(self):
+            self.models = []
+
         def create(self, **kwargs):
-            raise FakeError(f"bad key {SECRET}")
+            self.models.append(kwargs["model"])
+            if kwargs["model"] == "bad-model":
+                raise FakeError(f"request details include {SECRET}")
 
     class FakeClient:
         def __init__(self, **kwargs):
             assert kwargs["api_key"] == SECRET
-            self.responses = FakeResponses()
+            self.responses = responses
 
+    responses = FakeResponses()
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
-    config = make_config(tmp_path, "  api_key_env: DATABRICKS_TOKEN\n")
+    config = make_config(tmp_path, "  api_key_env: DATABRICKS_TOKEN\n  model_ids:\n    - bad-model\n    - last-model\n")
     result = doctor.check_online(config, env={"DATABRICKS_TOKEN": SECRET})
-    assert result.status == FAIL
-    assert "FakeError (HTTP 401)" in result.detail
-    assert SECRET not in result.detail
+    assert [item.name for item in result] == ["Model test-model", "Model bad-model", "Model last-model"]
+    assert [item.status for item in result] == [OK, FAIL, OK]
+    assert "FakeError (HTTP 401)" in result[1].detail
+    assert all(SECRET not in item.detail for item in result)
+    assert responses.models == ["test-model", "bad-model", "last-model"]
 
 
 def test_online_check_ok(tmp_path, monkeypatch):
@@ -137,11 +145,13 @@ def test_online_check_ok(tmp_path, monkeypatch):
             self.responses = FakeResponses()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeClient))
-    assert doctor.check_online(make_config(tmp_path), env={"OPENAI_API_KEY": SECRET}).status == OK
+    results = doctor.check_online(make_config(tmp_path), env={"OPENAI_API_KEY": SECRET})
+    assert len(results) == 1 and results[0].status == OK
 
 
 def test_online_check_without_key(tmp_path):
-    assert doctor.check_online(make_config(tmp_path), env={}).status == FAIL
+    results = doctor.check_online(make_config(tmp_path), env={})
+    assert len(results) == 1 and results[0].status == FAIL
 
 
 def test_cli_version(capsys):
