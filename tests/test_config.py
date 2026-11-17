@@ -78,6 +78,17 @@ def test_relative_paths(tmp_path):
     assert config.get("execution.working_directory") == str(work.resolve())
 
 
+def test_missing_current_directory_reports_config_error(tmp_path, monkeypatch):
+    path = write_config(tmp_path, "llm:\n  model_id: test-model\n")
+
+    def missing_cwd():
+        raise FileNotFoundError("current directory removed")
+
+    monkeypatch.setattr(Path, "cwd", missing_cwd)
+    with pytest.raises(ConfigError, match="Current directory no longer exists; cd to an existing directory"):
+        load_config(path, env={})
+
+
 def test_unknown_key_warns_and_is_ignored(tmp_path):
     config = load(tmp_path, "llm:\n  modle_id: typo\n")
     assert any("llm.modle_id" in w for w in config.warnings)

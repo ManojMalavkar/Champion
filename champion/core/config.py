@@ -152,6 +152,10 @@ def load_config(path: str | os.PathLike | None = None, *,
                 env: Mapping[str, str] | None = None,
                 cwd: str | os.PathLike | None = None) -> Config:
     """Build the configuration (defaults + file), resolve paths and validate it."""
+    try:
+        working_directory = Path(cwd) if cwd is not None else Path.cwd()
+    except FileNotFoundError as exc:
+        raise ConfigError("Current directory no longer exists; cd to an existing directory and try again") from exc
     file = find_config_file(path, env)
     data = copy.deepcopy(DEFAULTS)
     warnings: list[str] = []
@@ -166,7 +170,7 @@ def load_config(path: str | os.PathLike | None = None, *,
 
     root = project_root() if file is None else _base_dir(file)
     _normalise(data)
-    _resolve_paths(data, root, Path(cwd) if cwd else Path.cwd())
+    _resolve_paths(data, root, working_directory)
     errors = validate(data)
     if errors:
         where = file or "defaults"
