@@ -2,8 +2,13 @@
 
 ``RunHooks`` methods are called by the SDK around every tool call (and agent
 start/end, model calls). ``ToolEventRecorder`` records each tool call and can
-report it live through ``on_event``. The chat prints these events; in step 5
-the TUI shows them and later the audit log stores them.
+report it live through ``on_event``. The chat prints these events and the
+TUI (fast demo step 6) will show them.
+
+A specialist runs as a nested run (``Agent.as_tool``), which has its own
+hooks. ``SpecialistHooks`` forwards the nested tool calls to the recorder of
+the current turn, found on the run context (``ChampionContext.recorder``), so
+the user sees what the specialist does, not only that it was called.
 """
 
 from __future__ import annotations
@@ -56,3 +61,22 @@ class ToolEventRecorder(RunHooks):
         self.events.append(event)
         if self._on_event:
             self._on_event(event)
+
+
+class SpecialistHooks(RunHooks):
+    """Hooks of a specialist's nested run: pass tool calls on to the turn's recorder."""
+
+    @staticmethod
+    def _recorder(context: Any) -> ToolEventRecorder | None:
+        recorder = getattr(getattr(context, "context", None), "recorder", None)
+        return recorder if isinstance(recorder, ToolEventRecorder) else None
+
+    async def on_tool_start(self, context, agent, tool) -> None:
+        recorder = self._recorder(context)
+        if recorder:
+            await recorder.on_tool_start(context, agent, tool)
+
+    async def on_tool_end(self, context, agent, tool, result) -> None:
+        recorder = self._recorder(context)
+        if recorder:
+            await recorder.on_tool_end(context, agent, tool, result)

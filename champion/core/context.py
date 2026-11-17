@@ -5,6 +5,11 @@ as ``RunContextWrapper[ChampionContext]`` (``ctx.context``). Nothing in it is
 sent to the model unless a tool chooses to return it. The access level stored
 here is what every tool checks before touching a file (step 2); only the user
 can change it (``--level`` or ``/level``), never the model.
+
+Specialists (step 3) run as nested runs with this same context object, so a
+level change applies to them at once and their tool calls go to the same
+audit log. ``recorder`` is the current turn's tool-event recorder, set by the
+runtime for the length of one turn, so nested tool calls can be shown.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from champion.core.config import Config
 from champion.policy.levels import AccessLevel, get_level
@@ -29,6 +34,8 @@ class ChampionContext:
     level: AccessLevel
     audit: "AuditLog | None" = None
     started_at: datetime = field(default_factory=lambda: datetime.now().astimezone())
+    specialists: list[str] = field(default_factory=list)  # tool names of the offered specialists
+    recorder: Any = None  # ToolEventRecorder of the running turn (None between turns)
 
     @property
     def access_level(self) -> str:

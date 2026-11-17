@@ -114,13 +114,20 @@ class ChampionRuntime:
                  env: Mapping[str, str] | None = None,
                  agent_factory: Callable[[Model], Agent] | None = None,
                  level: str | None = None, audit: AuditLog | None = None) -> None:
-        from champion.agents.assistant import build_assistant
+        from champion.agents.orchestrator import build_orchestrator
+        from champion.specialists.registry import select_specialists
 
         self.config = config
         self.audit = audit if audit is not None else AuditLog(config.get("storage.audit_db"))
         self.context = ChampionContext.from_config(config, level=level, audit=self.audit)
         self.model = model if model is not None else build_model(config, build_client(config, env))
-        self.agent = (agent_factory or build_assistant)(self.model)
+        if agent_factory is not None:
+            self.specialists, self.specialist_problems = [], []
+            self.agent = agent_factory(self.model)
+        else:
+            self.specialists, self.specialist_problems = select_specialists(config)
+            self.agent = build_orchestrator(self.model, self.specialists, config)
+        self.context.specialists = [spec.tool_name for spec in self.specialists]
         self.run_config = make_run_config(config)
         self.max_turns = config.get("orchestration.max_steps")
         self.total_usage = TurnUsage()
@@ -131,15 +138,19 @@ class ChampionRuntime:
 
     async def ask(self, text: str, on_tool_event: Callable[[ToolEvent], None] | None = None) -> TurnResult:
         recorder = ToolEventRecorder(on_tool_event)
-        result = await Runner.run(
-            self.agent,
-            text,
-            context=self.context,
-            max_turns=self.max_turns,
-            hooks=recorder,
-            run_config=self.run_config,
-            session=self.session,
-        )
+        self.context.recorder = recorder  # specialists' nested tool calls report here
+        try:
+            result = await Runner.run(
+                self.agent,
+                text,
+                context=self.context,
+                max_turns=self.max_turns,
+                hooks=recorder,
+                run_config=self.run_config,
+                session=self.session,
+            )
+        finally:
+            self.context.recorder = None
         raw = result.context_wrapper.usage
         usage = TurnUsage(raw.requests, raw.input_tokens, raw.output_tokens, raw.total_tokens)
         self.total_usage.add(usage)

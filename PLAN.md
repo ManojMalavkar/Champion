@@ -97,9 +97,16 @@ Status: built; 115 tests pass on Databricks serverless; live checks on the works
 
 ### Step 3 - Orchestrator and specialist plug-in interface
 `champion/specialists/base.py` (`SpecialistSpec`: name, description, instructions, tools, routing hints, enabled flag) and `registry.py`; orchestrator built from the enabled specialists with `Agent.as_tool`; `session_info` and the generic file tools stay on the orchestrator; contract tests with a dummy specialist (offered to the orchestrator, rejected if a tool has no policy entry); the chat shows which specialist was called. Learn: agents as tools, nested runs.
-- [ ] Not started
+- [x] `SpecialistSpec` and registry (`register_specialist`, `check_spec`, `select_specialists`): config switch `agents.<name>.enabled`; a spec with a tool without policy entry is not offered and the chat warns.
+- [x] Orchestrator (`agents/orchestrator.py`): specialists as `<name>_agent` tools via `Agent.as_tool`; specialist call guarded and audited (agent `Champion`), nested tool calls audited with the specialist's title; nested hooks show them indented (`[Title] -> tool(...)`); tracing off in nested runs; `orchestration.specialist_max_turns`; own error text instead of the SDK's "Please try again".
+- [x] `session_info` lists the offered specialists; banner lists them.
+- [x] 19 contract tests with a dummy specialist; 135 tests pass.
+- [x] Live on the AI Gateway (Claude Haiku 4.5, temporary specialist, not shipped): orchestrator delegated, specialist listed `runs` and `runs/a`, correct answer, audit rows correct.
+- [ ] User verified
 
-Verify: `pytest`; `champion chat`, a question that the orchestrator passes to a specialist (`-> dummy_agent(...)`).
+Verify: `pytest` (134 pass). No specialist is shipped yet, so `champion chat` still shows "specialists: none yet"; the first real delegation in the chat comes with step 4 (`-> linux_coder_agent(...)`).
+
+Status: built; walkthrough in `docs/steps/03-orchestrator.md`.
 
 ### Step 4 - Linux specialist (on `main`)
 `linux_agent` with `process_list`, `disk_analysis` (largest folders and files inside the allowed area) and `shell_run` with command rules: a read-only allow-list (for example `ls`, `du`, `df`, `ps`, `grep`, `head`, `tail`, `wc`, `find`) runs at any level within the allowed paths; other commands need a write level and a yes/no approval in the chat; no shell operators or redirection outside the rules; timeout, output cap, audit. Skills and MCP for this agent come later (L1, L2).

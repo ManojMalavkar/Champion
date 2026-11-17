@@ -48,13 +48,15 @@ def describe_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
-def format_event(event: ToolEvent) -> str:
+def format_event(event: ToolEvent, orchestrator: str = "Champion") -> str:
+    """One line per tool call; calls made inside a specialist are indented and named."""
+    prefix = "  " if event.agent in (orchestrator, "") else f"      [{event.agent}] "
     if event.phase == "start":
-        return f"  -> {event.tool}({event.arguments})"
+        return f"{prefix}-> {event.tool}({event.arguments})"
     for marker in ("BLOCKED", "ERROR"):
         if event.result_preview.startswith(marker + ":"):
-            return f"  <- {event.tool}: {event.result_preview[:160]}"
-    return f"  <- {event.tool}: {event.result_chars} chars in {event.seconds:.2f} s"
+            return f"{prefix}<- {event.tool}: {event.result_preview[:160]}"
+    return f"{prefix}<- {event.tool}: {event.result_chars} chars in {event.seconds:.2f} s"
 
 
 def level_command(runtime: ChampionRuntime, argument: str) -> str:
@@ -128,8 +130,11 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
 async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = input,
                     write: Callable[[str], None] = print,
                     show_answer: AnswerPrinter | None = None) -> None:
+    specialists = ", ".join(runtime.context.specialists) or "none yet"
     write(f"Champion {__version__} - model {runtime.config.get('llm.model_id')}, "
-          f"access level {runtime.context.level.describe()}. /help for commands.")
+          f"access level {runtime.context.level.describe()}, specialists: {specialists}. /help for commands.")
+    for problem in getattr(runtime, "specialist_problems", []):
+        write(f"Warning: {problem}")
     while True:
         try:
             line = (await asyncio.to_thread(read_line, "you> ")).strip()

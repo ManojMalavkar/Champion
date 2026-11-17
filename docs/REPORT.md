@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-2a built (fast demo order: steps 3-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal. 115 automated tests passing; checked live against the workspace AI Gateway.
+**Status:** steps 0-3 built (fast demo order: steps 4-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools). 135 automated tests passing; checked live against the workspace AI Gateway.
 
 ---
 
@@ -28,7 +28,7 @@ flowchart TD
     U[Engineer] --> UI["CLI chat with Markdown (steps 1-2a) / Textual TUI (step 6)"]
     UI --> RT["Runtime: config, one OpenAI-compatible client, session, hooks"]
     RT --> GW["Databricks Unity AI Gateway: system.ai models (Chat Completions)"]
-    RT --> ORC["Orchestrator agent (step 3)"]
+    RT --> ORC["Orchestrator agent (step 3, built)"]
     ORC -->|agent as tool| LX["Linux specialist (step 4)"]
     ORC -->|agent as tool| PD["PyDyna specialist: knowledge (step 5), model reading (step 7)"]
     ORC -.->|after the demo| AM["ANSA/META specialist (branch)"]
@@ -115,6 +115,21 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Lessons:** the same SDK code works with Claude and gpt-oss through an OpenAI-compatible gateway, as long as the model class matches the API (Chat Completions vs. Responses). Governance belongs in config validation: the wrong endpoint type is refused before any request.
 * **Merged from the user's own commits:** configurable `llm.api_key_env` and the per-model online check.
 
+### Step 3 - Orchestrator and specialist plug-in interface
+* **Built:**
+  * `SpecialistSpec` (name, title, description, instructions, tools, routing hints, enabled flag, max turns) and a registry. Adding a specialist means one spec; the orchestrator, runtime and chat need no change.
+  * The orchestrator gets each enabled specialist as a `<name>_agent` tool (`Agent.as_tool`): a nested run with the specialist's own instructions, only its own tools, the same context (access level, audit log) and its own turn limit.
+  * Deny by default: a specialist whose tool has no policy entry is not offered, and the chat warns.
+  * Each specialist call is guarded and audited, and so is every tool call inside it, with the agent's name.
+  * The chat shows nested tool calls indented, e.g. `[Linux] -> filesystem_list(...)`.
+  * Tracing is off in nested runs too. A clear error text replaces the SDK's "Please try again".
+* **Evidence:**
+  * 135 tests (19 new contract tests with a dummy specialist).
+  * Live on the AI Gateway with Claude Haiku 4.5 and a temporary specialist: the orchestrator delegated "List all .k files under the runs folder and its sub-folders"; the specialist listed `runs` and `runs/a` and found `main.k` and `mat.k` (5 model requests, 3 audit rows, all allowed).
+* **Lessons:**
+  * A nested run has its own hooks, run config and turn limit; all three must be set, or the user cannot see what the specialist does and tracing could come back on.
+  * The SDK's default tool error text hides the reason and invites a retry; agents need errors that say what happened and whether to retry.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -123,13 +138,14 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 1 | 56 | `core/runtime.py`, `core/context.py`, `core/hooks.py`, `agents/assistant.py`, `tools/session_info.py`, `chat.py` | Step 1 |
 | 2 | 103 | `policy/levels.py`, `policy/sensitive.py`, `policy/scope.py`, `policy/tool_policy.py`, `storage/audit.py`, `tools/guard.py`, `tools/filesystem.py` | Step 2 |
 | 2a | 115 | Databricks provider in `core/config.py`, `core/runtime.py`, `doctor.py`; Markdown answers in `chat.py` | Step 2a |
+| 3 | 135 | `specialists/base.py`, `specialists/registry.py`, `agents/orchestrator.py`, `SpecialistHooks`, `run_guarded_async` | Step 3 |
 
 ## 8. Demo script (current state)
 
 About 5 minutes. Run from the project folder with the virtual environment active.
 
 1. `champion --version` and `champion doctor --online` - show the health table, the token "found (value not shown)" and one line per model checked through the AI Gateway.
-2. `pytest -q` - 115 tests pass in a few seconds without calling any model.
+2. `pytest -q` - 135 tests pass in a few seconds without calling any model, including the multi-agent contract tests (`tests/test_specialists.py`).
 3. `champion chat --level 1.1` in a folder with a few `.k` files:
    * "What is my access level and which folder am I in?" - point out the `-> session_info({})` line: the agent decided to call a tool instead of guessing.
    * "What can you help with?" - the answer is rendered as Markdown (bullets, bold); `champion chat --plain` shows the raw text.
@@ -156,7 +172,8 @@ This section grows with each step.
 * Checked live from Databricks; still to be checked on the Linux machine with real model files.
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
 * Only read-only file tools so far; write tools come with the agents that need them (the write check is in place and tested).
-* Next: step 3 (orchestrator and specialist plug-ins), then the Linux specialist (4), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
+* No specialist is shipped yet; the plug-in interface is tested with a dummy specialist and checked live with a temporary one.
+* Next: the Linux specialist (4), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
 * After the demo: skills, MCP, model editing, code execution with review, `champion kb`, ANSA/META and PRIMER specialists, a sandboxed execution backend.
 
 ## 11. Likely questions

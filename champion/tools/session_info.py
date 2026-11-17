@@ -35,7 +35,7 @@ def describe_session(context: ChampionContext) -> dict:
         "access": context.level.describe(),
         "access_level_enforced": True,
         "enabled_specialists": sorted(name for name, a in agents.items() if a.get("enabled", True)),
-        "specialists_available_now": [],  # added in steps 3 and 4
+        "specialists_available_now": list(context.specialists),  # tools offered to the orchestrator
         "model": context.config.get("llm.model_id"),
     }
 

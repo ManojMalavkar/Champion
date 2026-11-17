@@ -10,6 +10,9 @@
 5. cap the text to ``execution.max_output_chars``;
 6. write one audit row.
 
+``run_guarded_async`` is the same path for work that is itself async, such as
+a specialist agent called as a tool (step 3).
+
 ``requires(right)`` is used as ``is_enabled`` of a ``function_tool``: a tool
 that needs a right the current level does not give is not even offered to
 the model. The check inside ``run_guarded`` still runs, because ``is_enabled``
@@ -20,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from agents import RunContextWrapper
 
@@ -48,6 +51,12 @@ def cap_output(text: str, limit: int) -> str:
 
 async def run_guarded(ctx: RunContextWrapper[ChampionContext], tool: str, arguments: dict,
                       action: Callable[[], str]) -> str:
+    """Guard a blocking action; it runs in a thread so the event loop stays free."""
+    return await run_guarded_async(ctx, tool, arguments, lambda: asyncio.to_thread(action))
+
+
+async def run_guarded_async(ctx: RunContextWrapper[ChampionContext], tool: str, arguments: dict,
+                            action: Callable[[], Awaitable[Any]]) -> str:
     context = ctx.context
     started = time.monotonic()
     decision, reason = "allow", ""
@@ -56,7 +65,9 @@ async def run_guarded(ctx: RunContextWrapper[ChampionContext], tool: str, argume
         if rule.right in ("read", "write") and not context.level.allows(rule.right):
             raise PolicyDenied(f"access level {context.level.name} ({context.level.label}) "
                                f"does not allow {rule.right} tools")
-        text = await asyncio.to_thread(action)
+        text = str(await action())
+        if text.startswith("ERROR:"):  # the work reported its own error (e.g. a failed specialist)
+            decision, reason = "error", text[len("ERROR:"):].strip()[:200]
     except PolicyDenied as exc:
         decision, reason = "block", str(exc)
         text = f"BLOCKED: {exc}"

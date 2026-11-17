@@ -1,4 +1,7 @@
-"""The Champion agent (steps 1-2): session_info and the read-only file tools.
+"""The Champion agent of steps 1-2, kept for reference and as a test helper.
+
+From step 3 the runtime builds the orchestrator (``agents/orchestrator.py``),
+which has the same tools plus one tool per enabled specialist.
 
 An ``Agent`` is configuration only: a name, instructions (the system prompt),
 the tools it may call and the model. ``Runner.run`` (in ``core/runtime.py``)
@@ -6,8 +9,6 @@ does the loop: call the model, run any tool calls, send the results back, and
 repeat until the model answers with text or ``max_turns`` is reached. This is
 the loop written by hand in lab 3 of the course.
 
-In step 3 this agent becomes the orchestrator, which gets the specialists as
-tools. Write tools are not offered to it in step 2.
 """
 
 from __future__ import annotations
