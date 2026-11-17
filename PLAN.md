@@ -77,7 +77,7 @@ Goal: a working multi-agent demo for the interview as soon as possible. Decided 
 | done | 0-2 | Config, doctor, first agent, access levels, file tools, audit | Safety story |
 | 1 | 2a | Small fixes | Clean test run |
 | 2 | 3 | Orchestrator and specialist plug-in interface | Shows the multi-agent design |
-| 3 | 4 | Linux specialist | Quick to build, easy to demo |
+| 3 | 4 (4a, 4b) | Safe command runner and file search (4a), Linux specialist (4b) | Quick to build, easy to demo; shows a safe shell |
 | 4 | 5 | PyDyna knowledge specialist on the existing knowledge base | Core CAE value |
 | 5 | 6 | Textual TUI | Looks good in a demo |
 | 6 | 7 | Large-model reading (index, outline, find, read range) | Shows the 1-8 GB handling |
@@ -104,15 +104,54 @@ Status: built; 115 tests pass on Databricks serverless; live checks on the works
 - [x] Live on the AI Gateway (Claude Haiku 4.5, temporary specialist, not shipped): orchestrator delegated, specialist listed `runs` and `runs/a`, correct answer, audit rows correct.
 - [ ] User verified
 
-Verify: `pytest` (134 pass). No specialist is shipped yet, so `champion chat` still shows "specialists: none yet"; the first real delegation in the chat comes with step 4 (`-> linux_coder_agent(...)`).
+Verify: `pytest` (135 pass). No specialist is shipped yet, so `champion chat` still shows "specialists: none yet"; the first real delegation in the chat comes with step 4 (`-> linux_coder_agent(...)`).
 
 Status: built; walkthrough in `docs/steps/03-orchestrator.md`.
 
-### Step 4 - Linux specialist (on `main`)
-`linux_agent` with `process_list`, `disk_analysis` (largest folders and files inside the allowed area) and `shell_run` with command rules: a read-only allow-list (for example `ls`, `du`, `df`, `ps`, `grep`, `head`, `tail`, `wc`, `find`) runs at any level within the allowed paths; other commands need a write level and a yes/no approval in the chat; no shell operators or redirection outside the rules; timeout, output cap, audit. Skills and MCP for this agent come later (L1, L2).
-- [ ] Not started
+### Step 4 - Linux specialist (on `main`), in two commits
+The Linux specialist `linux_coder` (config key `agents.linux_coder`, orchestrator tool `linux_coder_agent`, title `Linux`) answers file, disk, process and shell requests. Flexible requests ("list only *.k files", ".dyn from all sub-folders", "which files contain *MAT_024") are covered first by structured file-search tools, and the rest by a safe command runner. Skills and MCP for this agent come later (L1, L2). Decided with the user, 17 Nov 2026.
 
-Verify: "Which folders use the most space here?", "Which processes use the most memory?", a write command asks for approval, a command outside the rules is blocked.
+Principle: Champion never runs a shell string. It runs only commands it has parsed, recognised and checked; the rules are in the code, not in the prompt.
+
+#### Step 4a - Safe command runner and file search
+Shared tools in `champion/tools/` (the Linux specialist uses them; the PyDyna specialist can reuse the file search):
+* `filesystem_find` (read): `path`, `patterns` (name globs such as `*.k`, no `/` or `..`), `recursive`, `max_depth` (default 10), `type` (file, folder, any), `min_size` / `max_size`, `modified_within_days`, `case_sensitive` (default no), `sort` (name, size, modified), `limit` (default 200, max 500). Walks with the step 2 checks: start folder checked like `filesystem_list`; blocked or secret-looking folders skipped and counted, not entered; symbolic links listed, never followed; limits on folders scanned and time (about 10 s); summary line such as "200 of 3412 matches shown, 2 folders skipped (blocked)".
+* `filesystem_grep` (read): text search inside files (`pattern`, plain text or simple regular expression, `path`, `patterns` for file names, `recursive`, `ignore_case`, `max_matches`); reads line by line, skips binary files and files of 100 MiB or more, same walk rules as `filesystem_find`; reports file, line number and the matching line (cut to a fixed length).
+
+Safe command runner (`champion/execution/commands.py`, tools `shell_run` and `shell_pipeline`):
+1. **No shell, only argument lists:** the model sends `["find", ".", "-name", "*.dyn"]`, not a string; the program is started directly (`shell=False`), so `;`, `&&`, `|`, `>`, `$( )`, backticks and `$VAR` have no meaning. A pipeline (`find ... | grep ... | wc -l`) is a list of steps that Champion connects itself; each step is checked on its own. No redirection to files.
+2. **Every command has a rule, deny by default:**
+   * read: `ls`, `find`, `du`, `df`, `stat`, `file`, `head`, `tail`, `wc`, `grep`, `sort`, `uniq`, `cut`, `diff`, `md5sum`, `sha256sum`, `ps`, `free`, `uptime`, `nproc`, `lscpu`, `nvidia-smi`, `squeue`, `sinfo`: any level, inside the allowed area;
+   * write: `mkdir`, `cp`, `mv`, `touch`, `tar` (create, extract), `gzip`, `gunzip`, `chmod` (no setuid/setgid/sticky bits): only at 1.2 / 2.2, and after approval;
+   * delete: `rm`: write level and approval every time (no `-r` on the working folder itself);
+   * never, at every level: `sudo`, `su`, shells and interpreters (`bash`, `sh`, `zsh`, `python`, `perl`), `env`, `xargs`, `nohup`, `timeout`, `nice`, `ssh`, `scp`, `rsync`, `curl`, `wget`, `nc`, `dd`, `mount`, `chown`, `kill`, `crontab`, `systemctl`, `ln`, `awk`, `sed -i`; unknown commands are refused the same way.
+3. **Allowed options per command:** each allowed command has its own option allow-list (for example `find`: `-name`, `-iname`, `-type`, `-size`, `-mtime`, `-mmin`, `-maxdepth`, `-mindepth`, `-newer`; `grep`: `-r`, `-i`, `-n`, `-l`, `-c`, `-e`, `-w`, `-v`, `-E`, `-F`). Unknown options are refused, which blocks escapes such as `find -exec/-execdir/-delete/-fprint/-ok`, `tar --to-command/--checkpoint-action`, `sort --compress-program` (see GTFOBins).
+4. **Path check for every path argument:** the step 2 checks (level, place, always-blocked paths, no symbolic links) with read or write as the command class needs; wildcards (`*.k`) are expanded by Champion inside the allowed area, never by a shell.
+5. **Limits:** working folder as current folder, no input, no terminal; a clean environment (only `PATH`, `HOME`, `LANG=C`, `TZ`; never `DATABRICKS_TOKEN`, `OPENAI_API_KEY` or other secrets); timeout `execution.timeout_seconds` with the whole process group killed; output cap `execution.max_output_chars`; CPU, memory (`execution.max_memory_bytes`) and file-size limits (`setrlimit`).
+6. **Approval:** write and delete commands show the exact command, the paths they touch and the class, then ask yes/no in the chat; one approval covers only that exact command, once (no "always"). Without an interactive chat (`champion chat -q`), approval-needing commands are refused.
+7. **Audit:** one row per command (argument list, class, decision, exit code, seconds, output size); output is data for the model, never instructions.
+
+Chat: a yes/no approval prompt (`approve? [y/N]`, default no), shown on the chat's own line, not inside the model's answer. The TUI (step 6) gets the same prompt as a dialog.
+
+Tests (fake model and real commands on temporary folders):
+* `filesystem_find` / `filesystem_grep`: patterns, recursion, depth, size and date filters, sorting, limits and the summary line; links listed but not followed; blocked folders skipped; outside the working folder blocked at 1.1.
+* Runner: each escape refused (`find -exec`, `tar --to-command`, `sort --compress-program`, `;` and `$(...)` as arguments, `bash -c`, unknown command, unknown option); path arguments outside the allowed area and links refused; secret paths refused at 2.2; the token is not in the child environment; timeout kills the process group; output cap; write command refused at 1.1, asks at 1.2, runs only after "yes", refused after "no" and in `-q` mode; audit rows.
+
+- [ ] Step 4a not started
+
+Verify 4a: `pytest`; tests above.
+
+#### Step 4b - Linux specialist
+`champion/specialists/linux.py`: `SpecialistSpec` `linux_coder` (title `Linux`), registered in `load_builtin_specialists()`.
+* Tools: `filesystem_list`, `filesystem_read`, `filesystem_disk_usage`, `filesystem_find`, `filesystem_grep`, `process_list` (read; top processes by memory or CPU, own user by default), `disk_analysis` (read; largest folders and files inside the allowed area, with the same walk rules and limits), `shell_run`, `shell_pipeline`.
+* Instructions: prefer the structured tools; use the shell tools only when they do not cover the request; explain BLOCKED and approval refusals; never retry around a rule.
+* Routing hints: "list all .dyn files in the sub-folders", "which folders use the most space", "which processes use the most memory", "find files containing *MAT_024", "create a folder results".
+* `config.example.yaml`: `agents.linux_coder.enabled: true` (already there).
+* Live check on the workspace AI Gateway: the verify questions below, with the tool lines and audit rows.
+
+- [ ] Step 4b not started
+
+Verify 4b: `champion chat` shows "specialists: linux_coder_agent"; "List all .k files here and in the sub-folders" (`-> linux_coder_agent(...)`, `[Linux] -> filesystem_find(...)`); "Which folders use the most space here?"; "Which processes use the most memory?"; "Which files contain *MAT_024?"; a write command (`mkdir results`) asks for approval at 1.2 and is refused at 1.1; a command outside the rules (`find . -exec rm {} \;`, `curl ...`) is blocked.
 
 ### Step 5 - PyDyna knowledge specialist (on `main`)
 `pydyna_agent` with the knowledge tools ported from PyDyna_Agent_git (LS-DYNA keywords, PyDyna API, and `search_pydpf_post` if that collection exists), reading the existing Chroma `vector_db/` and JSONL `knowledge-base/` under `pydyna.knowledge_root`, read only. No `champion kb` build yet (L5); `champion doctor` checks that the collections exist. Needs: the path of the existing knowledge folder on the Linux machine. Learn: retrieval as tools, grounding answers.
