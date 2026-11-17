@@ -7,7 +7,7 @@ import pytest
 from fake_model import FakeModel, text, tool_call
 
 from champion import cli
-from champion.chat import chat_loop, describe_error, run_chat
+from champion.chat import chat_loop, describe_error, markdown_printer, run_chat, use_markdown
 from champion.core.config import load_config
 from champion.core.runtime import ChampionRuntime
 
@@ -65,6 +65,58 @@ def test_one_shot_question(tmp_path, capsys):
     assert run_chat(make_runtime(tmp_path, [text("Hi.")]), "hello") == 0
     assert "champion> Hi." in capsys.readouterr().out
     assert run_chat(make_runtime(tmp_path, []), "hello") == 1
+
+
+ANSWER = "I can help with:\n- **File exploration**: list folders\n- **Session info**: level\n\nUse `/level`."
+
+
+def test_markdown_answer_is_rendered_in_a_terminal(tmp_path):
+    import io
+
+    from rich.console import Console
+
+    buffer = io.StringIO()
+    show = markdown_printer(Console(file=buffer, force_terminal=True, width=80, color_system=None))
+    runtime = make_runtime(tmp_path, [tool_call("session_info"), text(ANSWER)])
+    out = drive_with(runtime, ["what can you do?"], show)
+    rendered = buffer.getvalue()
+    assert "champion>" in rendered and "File exploration" in rendered
+    assert "**" not in rendered and "\u2022" in rendered  # bold markers gone, bullets drawn
+    assert "-> session_info({})" in out  # tool lines stay plain
+    assert "champion>" not in out and "tokens" in out
+
+
+def drive_with(runtime, lines, show_answer):
+    queue, out = list(lines), []
+
+    def read_line(prompt):
+        if not queue:
+            raise EOFError
+        return queue.pop(0)
+
+    asyncio.run(chat_loop(runtime, read_line, out.append, show_answer))
+    return "\n".join(out)
+
+
+def test_plain_text_when_not_a_terminal(tmp_path, capsys):
+    assert run_chat(make_runtime(tmp_path, [text(ANSWER)]), "hello") == 0  # capsys is not a terminal
+    assert "champion> I can help with:\n- **File exploration**" in capsys.readouterr().out
+
+
+def test_use_markdown_rules():
+    class Stream:
+        def __init__(self, tty):
+            self.tty = tty
+
+        def isatty(self):
+            return self.tty
+
+    assert use_markdown(False, Stream(True)) is True
+    assert use_markdown(True, Stream(True)) is False  # --plain
+    assert use_markdown(False, Stream(False)) is False  # file or pipe
+    assert use_markdown(False, object()) is False
+    assert cli.build_parser().parse_args(["chat", "--plain"]).plain is True
+    assert cli.build_parser().parse_args(["chat"]).plain is False
 
 
 def test_api_errors_show_type_and_status_only():

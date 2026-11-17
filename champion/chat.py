@@ -1,14 +1,20 @@
-"""Plain command-line chat (steps 1-2). Replaced by the Textual TUI in step 9.
+"""Plain command-line chat (steps 1-2a). The Textual TUI follows in fast demo step 6.
 
 ``read_line`` and ``write`` are parameters so tests can drive the chat without
 a terminal. One event loop runs the whole chat, because the OpenAI client must
 stay on the loop it was first used on.
+
+Answers are Markdown (the model writes it; the TUI will render the same text).
+In a terminal the final answer is rendered with ``rich`` (bold, lists, code,
+tables); when output goes to a file or pipe, or with ``--plain``, it is printed
+as raw text. Tool lines and BLOCKED/ERROR reasons always stay plain.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Callable
+import sys
+from typing import Callable, TextIO
 
 from agents.exceptions import MaxTurnsExceeded
 
@@ -72,8 +78,37 @@ def audit_command(runtime: ChampionRuntime, limit: int = 10) -> str:
                      + (f" - {r['reason']}" if r["reason"] else "") for r in rows)
 
 
-async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], None]) -> bool:
-    """Run one turn and print it. Returns False if the turn failed."""
+def use_markdown(plain: bool, stream: TextIO | None = None) -> bool:
+    """Render Markdown only for a terminal and only when ``--plain`` is not given."""
+    stream = sys.stdout if stream is None else stream
+    isatty = getattr(stream, "isatty", None)
+    return not plain and callable(isatty) and bool(isatty())
+
+
+def markdown_printer(console=None) -> Callable[[str], None]:
+    """Return a function that prints ``champion>`` and the answer rendered as Markdown."""
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    console = console or Console()
+
+    def show(text: str) -> None:
+        console.print("champion>", style="bold cyan")
+        console.print(Markdown(text))
+
+    return show
+
+
+AnswerPrinter = Callable[[str], None]
+
+
+async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], None],
+                 show_answer: AnswerPrinter | None = None) -> bool:
+    """Run one turn and print it. Returns False if the turn failed.
+
+    ``show_answer`` prints the final answer (Markdown renderer); without it the
+    answer is written as plain text after ``champion>``.
+    """
     try:
         turn = await runtime.ask(text, on_tool_event=lambda e: write(format_event(e)))
     except MaxTurnsExceeded:
@@ -82,13 +117,17 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
     except Exception as exc:  # keep the chat alive after API or tool errors
         write(f"Error: {describe_error(exc)}")
         return False
-    write(f"champion> {turn.text}")
+    if show_answer is not None:
+        show_answer(turn.text)
+    else:
+        write(f"champion> {turn.text}")
     write(f"  [{turn.usage.total_tokens} tokens, {turn.usage.requests} model call(s)]")
     return True
 
 
 async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = input,
-                    write: Callable[[str], None] = print) -> None:
+                    write: Callable[[str], None] = print,
+                    show_answer: AnswerPrinter | None = None) -> None:
     write(f"Champion {__version__} - model {runtime.config.get('llm.model_id')}, "
           f"access level {runtime.context.level.describe()}. /help for commands.")
     while True:
@@ -117,16 +156,17 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
         elif line.startswith("/"):
             write(f"Unknown command {line}. {HELP}")
         else:
-            await answer(runtime, line, write)
+            await answer(runtime, line, write, show_answer)
     write("Bye.")
 
 
-def run_chat(runtime: ChampionRuntime, question: str | None = None) -> int:
+def run_chat(runtime: ChampionRuntime, question: str | None = None, plain: bool = False) -> int:
     """Entry point used by ``champion chat``; returns the exit code."""
+    show_answer = markdown_printer() if use_markdown(plain) else None
     try:
         if question:
-            return 0 if asyncio.run(answer(runtime, question, print)) else 1
-        asyncio.run(chat_loop(runtime))
+            return 0 if asyncio.run(answer(runtime, question, print, show_answer)) else 1
+        asyncio.run(chat_loop(runtime, show_answer=show_answer))
         return 0
     except KeyboardInterrupt:
         print("\nBye.")

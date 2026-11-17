@@ -87,11 +87,13 @@ Goal: a working multi-agent demo for the interview as soon as possible. Decided 
 - [x] Fix `tests/test_doctor.py::test_online_check_reports_error_type_only` (config text now starts with `llm:`).
 - [x] Databricks AI Gateway provider: `llm.provider: databricks` (case-insensitive), validation (AI Gateway URL required, tracing off), `OpenAIChatCompletionsModel` in the runtime, Chat Completions check in `champion doctor --online`; example config uses the user's `llm` block (14 `system.ai` models). `test_example_config_matches_defaults` now compares every section except the `llm` values. New tests for provider, validation, model class and doctor.
 - [x] Checked live on the workspace gateway: `champion chat -q` with `system.ai.claude-haiku-4-5` called `session_info` and answered; `champion doctor --online`: 8 models OK, the 6 `claude-opus-*` models HTTP 403 (no permission for this user).
-* Optional, if the user agrees: render final answers as Markdown in the plain chat with `rich` (plain text when output is not a terminal, `champion chat --plain`).
-* REPORT.md: Databricks AI Gateway provider, configurable `llm.api_key_env`, per-model check in `champion doctor --online`.
-- [ ] Optional Markdown rendering, REPORT.md update
+- [x] Markdown answers in the plain chat with `rich` (raw text when output is not a terminal, `champion chat --plain`); tool lines and BLOCKED reasons stay plain. Checked live in a terminal: bullets drawn, no `**` markers; `--plain` prints the raw Markdown.
+- [x] REPORT.md (status, architecture, decisions, safety, progress, metrics, demo, questions) and README (Databricks setup, `--plain`) updated.
+- [ ] User verified
 
-Verify: `pytest` (112 pass), `champion doctor --online`, `champion chat -q "Which folder am I in?"`.
+Verify: `pytest` (115 pass), `champion doctor --online`, `champion chat` (answers rendered), `champion chat --plain`.
+
+Status: built; 115 tests pass on Databricks serverless; live checks on the workspace AI Gateway done.
 
 ### Step 3 - Orchestrator and specialist plug-in interface
 `champion/specialists/base.py` (`SpecialistSpec`: name, description, instructions, tools, routing hints, enabled flag) and `registry.py`; orchestrator built from the enabled specialists with `Agent.as_tool`; `session_info` and the generic file tools stay on the orchestrator; contract tests with a dummy specialist (offered to the orchestrator, rejected if a tool has no policy entry); the chat shows which specialist was called. Learn: agents as tools, nested runs.
@@ -236,4 +238,3 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * Which web search and mail MCP servers (provider, company approval for sending data out).
 * Interview date (decides how much of the fast demo order is needed).
 * Path of the existing PyDyna knowledge folder (`vector_db/`, `knowledge-base/`) on the Linux machine (needed for fast demo step 5).
-* Markdown rendering in the plain chat now (step 2a) or only in the TUI (step 6).

@@ -1,7 +1,8 @@
 """Champion command line.
 
 ``champion --version``, ``champion doctor`` (step 0) and ``champion chat``
-(step 1). Later steps add the terminal UI (step 5) and ``champion kb`` (step 10).
+(steps 1-2a). Later steps add the terminal UI (fast demo step 6) and
+``champion kb`` (L5, after the demo).
 """
 
 from __future__ import annotations
@@ -21,12 +22,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = commands.add_parser("doctor", help="check that Champion is ready to run")
     doctor.add_argument("--online", action="store_true",
-                        help="also check the key and each configured model with the Responses API")
+                        help="also send one small request to each configured model")
 
     chat = commands.add_parser("chat", help="chat with Champion in the terminal")
     chat.add_argument("-q", "--question", help="ask one question, print the answer and exit")
     chat.add_argument("--level", choices=ACCESS_LEVELS,
                       help="access level for this chat (default: policy.default_level)")
+    chat.add_argument("--plain", action="store_true",
+                      help="print answers as raw text (default: Markdown in a terminal)")
     return parser
 
 
@@ -59,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeSetupError as exc:
             print(f"Cannot start: {exc}", file=sys.stderr)
             return 2
-        return run_chat(runtime, args.question)
+        return run_chat(runtime, args.question, plain=args.plain)
     return 0
 
 
