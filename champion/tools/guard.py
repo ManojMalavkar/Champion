@@ -5,8 +5,9 @@
 1. look up the tool's policy entry (no entry -> blocked: deny by default);
 2. check the access level allows the right the tool needs;
 3. run the work in a thread (file access must not block the event loop);
-4. turn ``PolicyDenied`` into ``BLOCKED: <reason>`` and ``ToolError`` into
-   ``ERROR: <reason>`` so the model gets a clear message instead of a crash;
+4. turn ``PolicyDenied`` into ``BLOCKED: <reason>`` and ``ToolError`` (and an
+   unexpected ``OSError``) into ``ERROR: <reason>`` so the model gets a clear
+   message instead of a crash;
 5. cap the text to ``execution.max_output_chars``;
 6. write one audit row.
 
@@ -74,6 +75,9 @@ async def run_guarded_async(ctx: RunContextWrapper[ChampionContext], tool: str, 
     except ToolError as exc:
         decision, reason = "error", str(exc)
         text = f"ERROR: {exc}"
+    except OSError as exc:  # disk full, permission denied ... (step 4a write tools)
+        reason = exc.strerror or exc.__class__.__name__
+        decision, text = "error", f"ERROR: {reason}"
     text = cap_output(text, context.config.get("execution.max_output_chars"))
     if context.audit is not None:
         agent = getattr(getattr(ctx, "agent", None), "name", "") or ""

@@ -12,6 +12,10 @@ key is blocked, an LS-DYNA keyword file is allowed).
 
 The checks are on names only and are deliberately broad: a false positive
 ("tokenizer.py" is blocked) is safer than a leaked key.
+
+Champion's own folder ``.champion`` (undo backups, later the script folder
+and its trust store, step 4c) is blocked too: no agent tool may read or
+change the data Champion uses to undo or to trust things.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ SECRET_NAMES = {
     ".databrickscfg", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "authorized_keys", "known_hosts",
     "secrets", "credentials", "certs", "certificates",
 }
+INTERNAL_NAMES = {".champion"}
 SECRET_WORDS = ("secret", "credential", "token", "password", "passwd", "private")
 SECRET_SUFFIXES = (
     ".pem", ".p12", ".pfx", ".crt", ".cer", ".der", ".jks", ".keystore", ".kdbx", ".gpg", ".ppk", ".ovpn",
@@ -45,6 +50,8 @@ def _under(path: str, root: str) -> bool:
 def name_reason(name: str) -> str | None:
     """Why a single path component is blocked, or None."""
     lower = name.lower()
+    if lower in INTERNAL_NAMES:
+        return f"'{name}' is Champion's own folder (undo backups, scripts, trust store)"
     if lower in SECRET_NAMES:
         return f"'{name}' is a secret or credential location"
     if lower == ".env" or lower.startswith(".env.") or lower.endswith(".env"):

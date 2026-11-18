@@ -2,7 +2,7 @@
 
 Multi-agent CAE assistant (PyDyna / LS-DYNA and Linux) built on the OpenAI Agents SDK. Rebuild of mChampion, developed step by step; see `PLAN.md` for the steps and `docs/steps/` for a walkthrough of each one.
 
-Current state: step 3 (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface; the first specialist, Linux, comes in step 4).
+Current state: step 4a (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface, and the step 4a Linux tool layer: find, grep, disk and process tools, streaming `file_edit` and `files_organize` with `/changes` and `/undo`, and safe `shell_run` / `shell_pipeline`; the Linux specialist that uses them comes in step 4b).
 
 ## Install
 
@@ -42,7 +42,7 @@ pytest
 ## Chat
 
 ```bash
-champion chat                                   # interactive: /help, /new, /usage, /exit
+champion chat                                   # interactive: /help, /level, /audit, /changes, /undo, /new, /usage, /exit
 champion chat -q "What time is it and which folder am I in?"
 champion chat --plain                           # raw text answers (no Markdown rendering)
 ```
@@ -66,5 +66,6 @@ Choose with `champion chat --level 2.1` or `/level 2.1` in the chat (`/level` al
 ## Safety notes
 
 * The access levels (1.1, 1.2, 2.1, 2.2, Custom) are enforced in every tool (step 2).
+* Commands (step 4a) are never run through a shell: an allow-list of commands and exact options, every path checked like the file tools, a clean environment without tokens, time, CPU, memory and file-size limits. Writes at a write level run without a prompt and are listed in `/changes` (`file_edit` and `files_organize` can be undone with `/undo`); deletes ask `Approve? [y/N]` every time and are refused in `champion chat -q`. `execution.max_command_file_bytes` (default 8 GiB) limits files written by commands.
 * SDK tracing is off by default; turning it on sends traces to OpenAI (refused with the Databricks provider).
 * Content read by the agents is sent to the configured model: through the workspace AI Gateway (Databricks provider) or to OpenAI's API (OpenAI provider).

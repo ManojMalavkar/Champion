@@ -70,6 +70,7 @@ DEFAULTS: dict[str, Any] = {
         "max_memory_bytes": 4 * GiB,
         "max_cpu_seconds": 300,
         "max_output_file_bytes": 100 * MiB,
+        "max_command_file_bytes": 8 * GiB,  # largest file a shell command may write (step 4a)
     },
     "edit": {"full_backup": False},
     "storage": {"audit_db": "champion.db", "log_dir": "logs"},
@@ -307,7 +308,8 @@ def validate(data: dict) -> list[str]:
     if not isinstance(data["execution"]["working_directory"], str):
         errors.append("execution.working_directory must be a folder path")
     boolean("execution.require_approval")
-    for key in ("timeout_seconds", "max_output_chars", "max_memory_bytes", "max_cpu_seconds", "max_output_file_bytes"):
+    for key in ("timeout_seconds", "max_output_chars", "max_memory_bytes", "max_cpu_seconds", "max_output_file_bytes",
+                "max_command_file_bytes"):
         positive_int(f"execution.{key}")
     boolean("edit.full_backup")
 

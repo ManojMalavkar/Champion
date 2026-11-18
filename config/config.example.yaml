@@ -45,12 +45,13 @@ policy:
 
 execution:
   working_directory: .
-  require_approval: true            # approve every generated-code run
-  timeout_seconds: 120
+  require_approval: true            # deletes (rm) ask every time; false = deletes are refused, never auto-run
+  timeout_seconds: 120              # wall time per shell command / pipeline
   max_output_chars: 12000           # text a tool may return to the model per call
-  max_memory_bytes: 4294967296      # 4 GiB for generated code
+  max_memory_bytes: 4294967296      # 4 GiB per command / generated code
   max_cpu_seconds: 300
   max_output_file_bytes: 104857600  # 100 MiB largest file generated code may write
+  max_command_file_bytes: 8589934592  # 8 GiB largest file a shell command may write (cp of a model)
 
 edit:
   full_backup: false                # true = full copy before editing a large deck

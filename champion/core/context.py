@@ -10,6 +10,10 @@ Specialists (step 3) run as nested runs with this same context object, so a
 level change applies to them at once and their tool calls go to the same
 audit log. ``recorder`` is the current turn's tool-event recorder, set by the
 runtime for the length of one turn, so nested tool calls can be shown.
+
+``approver`` (step 4a) is how a tool asks the user to approve a delete: the
+chat sets it to a y/N prompt; it stays ``None`` in ``champion chat -q`` and
+in tests, so anything that needs approval is refused there.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ class ChampionContext:
     started_at: datetime = field(default_factory=lambda: datetime.now().astimezone())
     specialists: list[str] = field(default_factory=list)  # tool names of the offered specialists
     recorder: Any = None  # ToolEventRecorder of the running turn (None between turns)
+    approver: Any = None  # callable(ApprovalRequest) -> bool; None = nobody can approve (non-interactive)
 
     @property
     def access_level(self) -> str:

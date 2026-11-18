@@ -424,6 +424,18 @@ Verify Step 4a:
 pytest
 ```
 
+#### Step 4a status (built 18 Nov 2026)
+- [x] `tools/walk.py` (fd-based walk, no links followed, blocked entries skipped and counted, 10 s / 200,000 entries), `tools/search.py` (`filesystem_find`, `filesystem_grep`; plain text by default so `*MAT_024` works), `tools/system.py` (`process_list` from `/proc`, command names only; `disk_analysis`).
+- [x] `tools/text_patch.py` (streaming scan + atomic patch, SHA-256 while writing) and `tools/edit.py` (`file_edit`, `files_organize`); `tools/changes.py` (change list, `.champion/backups/<session>`, `/changes`, `/undo`, `/undo N`); `changes` table in `storage/audit.py`; `.champion` always blocked (`policy/sensitive.py`).
+- [x] `execution/command_policy.py` (rules, never list with reasons incl. HPC, exact options, find/tar grammar, chmod and ps checks, wildcards expanded by Champion, read/write/delete paths), `execution/approval.py` (request, fingerprint, `ask`), `execution/commands.py` (`shell=False`, `/usr/bin:/bin` only, clean env, rlimits, process-group kill, capped output, keys hidden).
+- [x] `tools/shell.py` (`shell_run`, `shell_pipeline` read-only); chat: y/N prompt for deletes, `Changed files this turn`, `/changes`, `/undo`; `-q` refuses deletes. Config key `execution.max_command_file_bytes` (8 GiB, as proposed; still open below). Guard turns an unexpected `OSError` into `ERROR:`.
+- [x] Found while building: `grep -r`, `diff -r` and `md5sum -c` read file contents without Champion's per-file secret checks (a recursive grep would read `.env`); refused with a pointer to `filesystem_grep`. `ps -f`/`-o args` refused (command lines can hold secrets).
+- [x] Deviation: `files_organize` writes one audit row per call (with all moves in its arguments) and one change-list entry per folder/move, not one audit row per move.
+- [x] 53 new tests, 188 pass (`test_find_grep`, `test_system_tools`, `test_edit_tools`, `test_command_policy`, `test_commands`, `test_chat_changes`).
+- [ ] User verified
+
+Walkthrough: `docs/steps/04a-safe-commands.md`. The tools are put on the Linux specialist in step 4b.
+
 ### Step 4b - Linux specialist
 
 Create `champion/specialists/linux.py`.

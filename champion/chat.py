@@ -8,6 +8,12 @@ Answers are Markdown (the model writes it; the TUI will render the same text).
 In a terminal the final answer is rendered with ``rich`` (bold, lists, code,
 tables); when output goes to a file or pipe, or with ``--plain``, it is printed
 as raw text. Tool lines and BLOCKED/ERROR reasons always stay plain.
+
+Step 4a: after a turn that changed files the chat prints one line
+(``Changed files this turn: N (see /changes)``); ``/changes`` lists the
+session's changes and ``/undo`` / ``/undo N`` takes them back. Deletes ask
+``Approve? [y/N]`` in the chat (default no); in ``champion chat -q`` nobody
+can answer, so such commands are refused.
 """
 
 from __future__ import annotations
@@ -23,12 +29,18 @@ from champion.core.config import ACCESS_LEVELS
 from champion.core.hooks import ToolEvent
 from champion.core.runtime import ChampionRuntime
 from champion.policy.levels import BUILT_IN
+from champion.policy.scope import PolicyDenied
+from champion.tools.changes import changes_text, turn_summary, undo
+from champion.tools.guard import ToolError
 
 HELP = """Commands:
   /help          show this help
   /level         show the access level and the levels you can choose
   /level NAME    change the access level (1.1, 1.2, 2.1, 2.2, custom)
   /audit         last tool calls of this chat (from the audit log)
+  /changes       files changed in this session, newest first
+  /undo          undo the last tool call's changes (file_edit, files_organize)
+  /undo N        undo change number N
   /new           start a new conversation (forget history)
   /usage         tokens used in this chat
   /exit          quit (also /quit or Ctrl-D)"""
@@ -104,6 +116,32 @@ def markdown_printer(console=None) -> Callable[[str], None]:
 AnswerPrinter = Callable[[str], None]
 
 
+def make_approver(read_line: Callable[[str], str], write: Callable[[str], None]) -> Callable:
+    """y/N prompt for deletes; anything but y/yes (or no answer) is no."""
+    def approve(request) -> bool:
+        write(request.describe())
+        try:
+            reply = read_line("Approve? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            return False
+        approved = reply.strip().lower() in ("y", "yes")
+        write("  approved" if approved else "  not approved; nothing was run")
+        return approved
+    return approve
+
+
+def undo_command(runtime: ChampionRuntime, argument: str) -> str:
+    number = None
+    if argument:
+        if not argument.lstrip("#").isdigit():
+            return "Use /undo or /undo N (N = number from /changes)"
+        number = int(argument.lstrip("#"))
+    try:
+        return undo(runtime.context, number)
+    except (ToolError, PolicyDenied) as exc:
+        return f"Undo refused: {exc}"
+
+
 async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], None],
                  show_answer: AnswerPrinter | None = None) -> bool:
     """Run one turn and print it. Returns False if the turn failed.
@@ -111,6 +149,8 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
     ``show_answer`` prints the final answer (Markdown renderer); without it the
     answer is written as plain text after ``champion>``.
     """
+    audit = runtime.context.audit
+    changes_before = audit.change_count() if audit is not None else 0
     try:
         turn = await runtime.ask(text, on_tool_event=lambda e: write(format_event(e)))
     except MaxTurnsExceeded:
@@ -124,6 +164,9 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
     else:
         write(f"champion> {turn.text}")
     write(f"  [{turn.usage.total_tokens} tokens, {turn.usage.requests} model call(s)]")
+    summary = turn_summary(runtime.context, changes_before)
+    if summary:
+        write(summary)
     return True
 
 
@@ -135,6 +178,7 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
           f"access level {runtime.context.level.describe()}, specialists: {specialists}. /help for commands.")
     for problem in getattr(runtime, "specialist_problems", []):
         write(f"Warning: {problem}")
+    runtime.context.approver = make_approver(read_line, write)
     while True:
         try:
             line = (await asyncio.to_thread(read_line, "you> ")).strip()
@@ -152,6 +196,10 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
             write(level_command(runtime, argument.strip()))
         elif line == "/audit":
             write(audit_command(runtime))
+        elif line == "/changes":
+            write(changes_text(runtime.context))
+        elif command == "/undo":
+            write(undo_command(runtime, argument.strip()))
         elif line == "/new":
             runtime.new_session()
             write("New conversation started.")

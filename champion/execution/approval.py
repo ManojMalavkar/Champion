@@ -1,0 +1,85 @@
+"""Approval of deletes (step 4a, PLAN 4a.6).
+
+Writes at a write level run without a prompt (they go to the change list).
+Deletes (``rm``) - and process control in a later step - ask the user every
+time. The request shows exactly what will run: the resolved program, the
+argument list, the class, the folder it runs in, the affected paths and the
+level. Default answer is no.
+
+The *fingerprint* is a SHA-256 of all of that. It is taken when the user is
+asked and taken again from a fresh policy check just before the command
+starts; if anything differs (another program found, other paths after
+wildcard expansion, the level changed), the command does not run.
+
+Without an approver (``champion chat -q``, tests) every approval request is
+refused: nothing that needs a yes runs unattended.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import shlex
+from dataclasses import dataclass
+
+from champion.core.context import ChampionContext
+from champion.execution.command_policy import CommandCheck
+from champion.policy.scope import PolicyDenied
+
+WARNINGS = {
+    "delete": "Deleted files cannot be restored by Champion (/undo does not cover deletes).",
+    "process_control": "This signals or stops processes.",
+}
+
+
+@dataclass(frozen=True)
+class ApprovalRequest:
+    tool: str
+    executable: str
+    argv: tuple[str, ...]
+    command_class: str
+    cwd: str
+    level: str
+    paths: tuple[str, ...]
+
+    @classmethod
+    def for_command(cls, tool: str, check: CommandCheck, executable: str, level: str) -> "ApprovalRequest":
+        return cls(tool, executable, tuple(check.argv), check.command_class, str(check.cwd), level,
+                   tuple(check.affected))
+
+    @property
+    def fingerprint(self) -> str:
+        data = json.dumps([self.tool, self.executable, list(self.argv), self.command_class, self.cwd, self.level,
+                           list(self.paths)], separators=(",", ":"))
+        return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+    def describe(self) -> str:
+        lines = [f"Approval needed ({self.command_class}) for {self.tool}:",
+                 f"  command : {shlex.join(self.argv)}",
+                 f"  program : {self.executable}",
+                 f"  folder  : {self.cwd}",
+                 f"  level   : {self.level}"]
+        shown = list(self.paths[:20])
+        lines += [f"  affects : {p}" for p in shown]
+        if len(self.paths) > len(shown):
+            lines.append(f"  ... and {len(self.paths) - len(shown)} more path(s)")
+        if self.command_class in WARNINGS:
+            lines.append(f"  warning : {WARNINGS[self.command_class]}")
+        return "\n".join(lines)
+
+
+def ask(context: ChampionContext, request: ApprovalRequest) -> None:
+    """Return if the user said yes; raise ``PolicyDenied`` otherwise (nothing has run)."""
+    if not context.config.get("execution.require_approval"):
+        raise PolicyDenied(f"{request.command_class} commands need approval and execution.require_approval is "
+                           "false, so they are refused; nothing was run")
+    if context.approver is None:
+        raise PolicyDenied(f"this {request.command_class} command needs the user's approval, which is not possible "
+                           "here (non-interactive mode); nothing was run")
+    try:
+        approved = bool(context.approver(request))
+    except (EOFError, KeyboardInterrupt):
+        approved = False
+    if not approved:
+        raise PolicyDenied("the user did not approve this command; nothing was run. Do not retry it; "
+                           "ask the user what to do instead")
