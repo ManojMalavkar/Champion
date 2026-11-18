@@ -202,7 +202,9 @@ Policy rules:
 - The LLM never overrides these rules.
 
 Initial read commands:
-- `ls`, `find`, `du`, `df`, `stat`, `file`, `head`, `tail`, `wc`, `grep`, `sort`, `uniq`, `cut`, `diff`, `md5sum`, `sha256sum`, `ps`, `free`, `uptime`, `nproc`, `lscpu`, `nvidia-smi`, `squeue`, `sinfo`
+- `ls`, `find`, `du`, `df`, `stat`, `file`, `head`, `tail`, `wc`, `grep`, `sort`, `uniq`, `cut`, `diff`, `md5sum`, `sha256sum`, `ps`, `free`, `uptime`, `nproc`, `lscpu`, `nvidia-smi`
+
+Not part of the Linux agent: HPC job scheduler commands (`squeue`, `sinfo`, `sbatch`, `scancel`, `qsub`, `qstat`) belong to a separate HPC agent added later (Phase B, `agent/hpc`). The Linux agent refuses them like any command without a rule. (User decision, 18 Nov 2026.)
 
 Initial write commands (write level + approval):
 - `mkdir`, `cp`, `mv`, `touch`
@@ -216,7 +218,6 @@ Delete:
 Process control:
 - Do not permanently ban `kill`; introduce it later/within Step 4 only with explicit PID, own process, deterministic checks and approval every time.
 - Never allow PID `-1`, broad process-group targeting, `pkill` or `killall` initially.
-- Scheduler mutation (`scancel`, `sbatch`) should be separate future command rules with approval.
 
 Always blocked initially:
 - privilege escalation: `sudo`, `su`
@@ -346,6 +347,7 @@ Command-policy tests:
 - `sort --compress-program` blocked;
 - shells/interpreters blocked;
 - network commands blocked;
+- HPC scheduler commands (`squeue`, `sinfo`, `sbatch`, `scancel`) blocked for the Linux agent (they belong to the HPC agent);
 - path escape and symlink blocked.
 
 Execution tests:
@@ -552,10 +554,11 @@ Until the demo there are no branches: the Linux specialist (fast demo step 4) an
 
 | Order | Branch | Needs from phase A | Content |
 | --- | --- | --- | --- |
-| 1 | `agent/linux` | L1, L2 | Base agent built in fast demo step 4; on the branch: skills `linux.disk_analysis`, `hpc.job_submission`, MCP servers if needed |
+| 1 | `agent/linux` | L1, L2 | Base agent built in fast demo step 4; on the branch: skill `linux.disk_analysis`, MCP servers if needed |
 | 2 | `agent/pydyna` | L1, L3-L5 | Knowledge tools and model reading built in fast demo steps 5 and 7; on the branch: `pydyna_count_nodes`, `pydyna_local_materials`, `pydyna_edit_model`, reviewer and `pydyna_execute` on the host backend; kb projects `pydyna`, `pydpf_post`; skills `cae.model_check`, PyDyna code templates |
 | 3 | `agent/ansa-meta` | L1, L4, L5 | ANSA/META Python API specialist based on ANSA-META_CodeRAG: knowledge tools on `ansa_meta.knowledge_root`, ANSA and META batch backends (licensed batch runs), static check for ANSA/META scripts; kb projects `ansa_api`, `meta_api`; skills with ANSA/META script templates |
 | 4 | `agent/primer` | L1, L3-L5 | Oasys PRIMER automation specialist: JavaScript API knowledge on `primer.knowledge_root`, PRIMER batch backend (licensed batch runs, JavaScript), JavaScript static check, reuse of the LS-DYNA library; kb project `primer_js`; skills with PRIMER script templates |
+| 5 | `agent/hpc` | L1, L4 | HPC job specialist (separate from the Linux agent): queue and partition status (`squeue`, `sinfo`), job submission and cancellation (`sbatch`, `scancel`) with approval every time, own command rules in the shared command policy; skill `hpc.job_submission`. Scheduler type (Slurm or PBS) to be decided |
 
 At most two branches are open at the same time; a branch can be reviewed while the next L item is built on `main`.
 
@@ -600,6 +603,7 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
   * servers that reach the internet are marked in `champion doctor` and the TUI status bar.
 
 ## Resolved decisions
+* HPC job commands are not part of the Linux agent; a separate HPC agent is added later (Phase B, `agent/hpc`). (User, in conversation, 18 Nov 2026.)
 * ANSA, META and PRIMER are installed on the Linux workstation with licences for batch runs, so the ANSA/META and PRIMER branches get real batch backends (config: executable paths per agent). (User, in conversation.)
 * PRIMER is Oasys PRIMER, scripted in JavaScript. (User, in conversation.)
 * Knowledge base layout: `vector_db/` (Chroma) and `knowledge-base/` (JSONL) per agent, the same for PyDyna, ANSA/META and PRIMER. (User, in conversation.)
@@ -608,6 +612,7 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * One framework only (OpenAI Agents SDK); no LangGraph or CrewAI versions, to save time. (User, in conversation, 16 Nov 2026.)
 
 ## Open decisions
+* HPC agent (`agent/hpc`): scheduler type on the Linux machine (Slurm or PBS) and which commands it may run.
 * `pydyna.max_model_bytes` value (8 GiB for now).
 * Approval for writes inside scope at levels 1.2/2.2 (currently: only deletes and model edits ask).
 * Which web search and mail MCP servers (provider, company approval for sending data out).
