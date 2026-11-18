@@ -60,6 +60,10 @@ def dummy():
     unregister_specialist("dummy")
 
 
+# The dummy contract tests switch the built-in Linux specialist off, so only the dummy is offered.
+LINUX_OFF = "agents:\n  linux_coder:\n    enabled: false\n"
+
+
 def make_config(tmp_path: Path, extra: str = ""):
     folder = tmp_path / "config"
     folder.mkdir(exist_ok=True)
@@ -121,8 +125,10 @@ def test_select_follows_config_and_rejects_unsafe_specs(tmp_path):
     assert select_specialists(make_config(tmp_path), [off_by_default]) == ([], [])
 
 
-def test_no_specialists_registered_by_default(tmp_path):
-    assert select_specialists(make_config(tmp_path)) == ([], [])  # Linux comes in step 4
+def test_linux_is_the_builtin_specialist(tmp_path):
+    selected, problems = select_specialists(make_config(tmp_path))
+    assert [s.name for s in selected] == ["linux_coder"] and problems == []
+    assert select_specialists(make_config(tmp_path, LINUX_OFF)) == ([], [])
 
 
 # ---------------------------------------------------------- the orchestrator
@@ -136,7 +142,7 @@ def test_orchestrator_without_specialists_says_so():
 
 
 def test_specialist_is_offered_to_the_orchestrator(tmp_path, dummy):
-    runtime = make_runtime(tmp_path, [text("Hi.")])
+    runtime = make_runtime(tmp_path, [text("Hi.")], LINUX_OFF)
     asyncio.run(runtime.ask("hello"))
     first = runtime.model.calls[0]
     assert first["tools"] == ["session_info", "filesystem_list", "filesystem_read",
@@ -151,7 +157,7 @@ def test_rejected_specialist_is_not_offered_and_the_chat_warns(tmp_path):
     unsafe = SpecialistSpec(**{**DUMMY.__dict__, "name": "unsafe", "tools": (dummy_unruled,)})
     register_specialist(unsafe)
     try:
-        runtime = make_runtime(tmp_path, [text("Hi.")])
+        runtime = make_runtime(tmp_path, [text("Hi.")], LINUX_OFF)
         out = drive(runtime, ["hello"])
     finally:
         unregister_specialist("unsafe")

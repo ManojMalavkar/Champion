@@ -14,7 +14,9 @@ Safety around the specialist tool:
   so each specialist call is one audit row;
 * the nested run has tracing off (same rule as the main run) and its own turn
   limit (``orchestration.specialist_max_turns``);
-* its tool calls are shown live through ``SpecialistHooks``.
+* its tool calls are shown live through ``SpecialistHooks``;
+* it is only offered when the current access level enables at least one of
+  its tools (step 4b): a specialist that could do nothing is not shown.
 """
 
 from __future__ import annotations
@@ -147,6 +149,26 @@ def specialist_failure(spec: SpecialistSpec, max_turns: int):
     return failure
 
 
+def _tool_enabled(tool: Any, ctx, agent) -> bool:
+    flag = getattr(tool, "is_enabled", True)
+    if not callable(flag):
+        return bool(flag)
+    result = flag(ctx, agent)
+    if hasattr(result, "__await__"):  # async checks are not used by Champion's tools; offer it
+        close = getattr(result, "close", None)
+        if close:
+            close()
+        return True
+    return bool(result)
+
+
+def specialist_enabled(spec: SpecialistSpec):
+    """``is_enabled`` for the specialist tool: offered if the level enables any of its tools."""
+    def is_enabled(ctx, agent) -> bool:
+        return not spec.tools or any(_tool_enabled(tool, ctx, agent) for tool in spec.tools)
+    return is_enabled
+
+
 def build_specialist_tool(spec: SpecialistSpec, model: Model, config: Config | None) -> FunctionTool:
     """Turn a spec into the orchestrator's ``<name>_agent`` tool (guarded and audited)."""
     register(ToolRule(spec.tool_name, "none",
@@ -166,7 +188,7 @@ def build_specialist_tool(spec: SpecialistSpec, model: Model, config: Config | N
         return await run_guarded_async(ctx, spec.tool_name, _arguments(raw_arguments),
                                        lambda: invoke_specialist(ctx, raw_arguments))
 
-    return dataclasses.replace(tool, on_invoke_tool=on_invoke_tool)
+    return dataclasses.replace(tool, on_invoke_tool=on_invoke_tool, is_enabled=specialist_enabled(spec))
 
 
 def build_orchestrator(model: Model, specs: Iterable[SpecialistSpec] = (),

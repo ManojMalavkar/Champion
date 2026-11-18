@@ -2,7 +2,7 @@
 
 Multi-agent CAE assistant (PyDyna / LS-DYNA and Linux) built on the OpenAI Agents SDK. Rebuild of mChampion, developed step by step; see `PLAN.md` for the steps and `docs/steps/` for a walkthrough of each one.
 
-Current state: step 4a (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface, and the step 4a Linux tool layer: find, grep, disk and process tools, streaming `file_edit` and `files_organize` with `/changes` and `/undo`, and safe `shell_run` / `shell_pipeline`; the Linux specialist that uses them comes in step 4b).
+Current state: step 4b (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface, and the step 4a Linux tool layer: find, grep, disk and process tools, streaming `file_edit` and `files_organize` with `/changes` and `/undo`, and safe `shell_run` / `shell_pipeline`, used by the first specialist, Linux (`linux_coder_agent`, switch off with `agents.linux_coder.enabled: false`).
 
 ## Install
 

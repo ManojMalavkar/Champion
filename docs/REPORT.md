@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-3 and 4a built (fast demo order: 4b, 4c, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), and the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes). 188 automated tests passing; steps 0-3 checked live against the workspace AI Gateway.
+**Status:** steps 0-3, 4a and 4b built (fast demo order: 4c, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes) and the first real specialist, Linux, using it. 194 automated tests passing; steps 0-3 checked live against the workspace AI Gateway (4b live check pending).
 
 ---
 
@@ -29,7 +29,7 @@ flowchart TD
     UI --> RT["Runtime: config, one OpenAI-compatible client, session, hooks"]
     RT --> GW["Databricks Unity AI Gateway: system.ai models (Chat Completions)"]
     RT --> ORC["Orchestrator agent (step 3, built)"]
-    ORC -->|agent as tool| LX["Linux specialist (step 4)"]
+    ORC -->|agent as tool| LX["Linux specialist (step 4b, built)"]
     ORC -->|agent as tool| PD["PyDyna specialist: knowledge (step 5), model reading (step 7)"]
     ORC -.->|after the demo| AM["ANSA/META specialist (branch)"]
     ORC -.->|after the demo| PR["PRIMER specialist (branch)"]
@@ -71,7 +71,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | Content checks | Private-key blocks refused in any file; `.key` read only if it is an LS-DYNA keyword file; binary files refused; output capped | Done (step 2), tested |
 | Tool policy | Every tool declares its right; a tool without an entry cannot run (deny by default) | Done (step 2), tested |
 | Audit | One row per tool call (allowed, blocked, failed) with reason; results not stored; file mode 600 | Done (step 2), tested |
-| Tool ownership | Write and execute tools exist only on the specialist that needs them | Step 3 (interface), 4b (Linux) |
+| Tool ownership | Write and execute tools exist only on the specialist that needs them; a specialist is offered only if the level enables one of its tools | Done (steps 3, 4b), tested |
 | Shell command rules | Argument lists only (`shell=False`); allow-list of commands and exact options; never-list with reasons (shells, interpreters, network, `sudo`, `xargs`, `awk`, HPC scheduler); wildcards expanded by Champion; every path checked as read, write or delete; options that run programs, follow links or read contents recursively refused | Done (step 4a), tested |
 | Safe executor | Programs only from `/usr/bin` and `/bin`; environment of 5 variables (no tokens); own process group killed at the time limit; CPU, memory and file-size limits; output capped; private keys and tokens hidden | Done (step 4a), tested |
 | Writes and deletes | Writes at a write level run without a prompt and go into the session change list (`/changes`, `/undo`); deletes ask y/N every time, approval bound to a fingerprint re-checked before the start; `-q` refuses deletes | Done (step 4a), tested |
@@ -144,6 +144,11 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
   * `grep -r` reads every file below a folder, including `.env`, without the per-file checks of the file tools. The safe answer was a dedicated tool (`filesystem_grep`) and refusing the recursive options.
   * Writes without a prompt are acceptable when every change is listed and undoable; prompts are kept for what cannot be undone (deletes).
 
+### Step 4b - Linux specialist
+* **Built:** `linux_coder` (title Linux) with the 11 step 4a tools, instructions that put structured tools first and forbid retrying a block in another form, and 10 routing hints; registered as a built-in specialist, so the orchestrator offers `linux_coder_agent`. One orchestrator rule for every specialist: it is offered only if the access level enables at least one of its tools.
+* **Evidence:** 194 tests (6 new). The PLAN 4b verification runs as tests through the real orchestrator with the scripted model: `*.k` found in sub-folders, `*MAT_024` found by line, create blocked at 1.1 and done at 1.2 with `Changed files this turn: 1`, delete only after `y`, edit undone, 3 moves listed, and `find -exec`, `curl` and `~/.ssh/id_rsa` blocked at 2.2 with every Linux audit row `block`. Live check on the AI Gateway still to do.
+* **Lessons:** adding a specialist touched no runtime or chat code, which confirms the plug-in interface. Hiding a specialist that could do nothing at the current level keeps the model's choice honest, the same idea as hiding single tools.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -154,6 +159,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 2a | 115 | Databricks provider in `core/config.py`, `core/runtime.py`, `doctor.py`; Markdown answers in `chat.py` | Step 2a |
 | 3 | 135 | `specialists/base.py`, `specialists/registry.py`, `agents/orchestrator.py`, `SpecialistHooks`, `run_guarded_async` | Step 3 |
 | 4a | 188 | `tools/walk.py`, `search.py`, `system.py`, `text_patch.py`, `edit.py`, `changes.py`, `shell.py`; `execution/command_policy.py`, `approval.py`, `commands.py` | Step 4a |
+| 4b | 194 | `specialists/linux.py`; `specialist_enabled` in `agents/orchestrator.py` | Step 4b |
 
 ## 8. Demo script (current state)
 
@@ -186,10 +192,9 @@ This section grows with each step.
 
 * Checked live from Databricks; still to be checked on the Linux machine with real model files.
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
-* The step 4a tools are not yet offered to any agent; step 4b puts them on the Linux specialist (and its live check on the AI Gateway follows then).
+* The Linux specialist is tested with the scripted model; its live check on the AI Gateway (how well the real model picks tools) is still to be done.
 * Shell commands open their paths after Champion's check (time-of-check race); `cp -r` into an existing folder can follow links already inside it; shell writes are listed but have no undo. A sandbox backend later removes the first two.
-* No specialist is shipped yet; the plug-in interface is tested with a dummy specialist and checked live with a temporary one.
-* Next: the Linux specialist (4b), existing shell scripts as checked tools (4c), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
+* Next: existing shell scripts as checked tools (4c), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
 * After the demo: skills, MCP, model editing, code execution with review, `champion kb`, ANSA/META and PRIMER specialists, a sandboxed execution backend.
 
 ## 11. Likely questions

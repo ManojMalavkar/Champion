@@ -96,7 +96,7 @@ def test_tool_call_then_answer(tmp_path):
     # first call: the agent's instructions and its tools are sent to the model
     assert "You are Champion" in model.calls[0]["instructions"]
     assert model.calls[0]["tools"] == ["session_info", "filesystem_list", "filesystem_read",
-                                        "filesystem_disk_usage"]
+                                        "filesystem_disk_usage", "linux_coder_agent"]  # Linux since step 4b
     # second call: the tool result was sent back to the model
     outputs = [i for i in model.calls[1]["input"] if isinstance(i, dict) and i.get("type") == "function_call_output"]
     assert json.loads(outputs[0]["output"])["access_level"] == "1.1"
