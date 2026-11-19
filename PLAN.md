@@ -77,7 +77,7 @@ Goal: a working multi-agent demo for the interview as soon as possible. Decided 
 | done | 0-2 | Config, doctor, first agent, access levels, file tools, audit | Safety story |
 | 1 | 2a | Small fixes | Clean test run |
 | 2 | 3 | Orchestrator and specialist plug-in interface | Shows the multi-agent design |
-| 3 | 4 (4a, 4b, 4c, 4d) | Safe command runner and file search (4a), Linux specialist (4b), your existing shell scripts as checked tools (4c), text transforms without a shell (4d) | Quick to build, easy to demo; shows a safe shell, reuse of existing scripts and why structured tools beat free commands |
+| 3 | 4 (4a, 4b, 4c, 4d, 4e) | Safe command runner and file search (4a), Linux specialist (4b), your existing shell scripts as checked tools (4c), text transforms without a shell (4d), per-folder access with read or edit per folder (4e) | Quick to build, easy to demo; shows a safe shell, reuse of existing scripts, why structured tools beat free commands, and access the user controls folder by folder |
 | 4 | 5 | PyDyna knowledge specialist on the existing knowledge base | Core CAE value |
 | 5 | 6 | Textual TUI | Looks good in a demo |
 | 6 | 7 | Large-model reading (index, outline, find, read range) | Shows the 1-8 GB handling |
@@ -686,6 +686,112 @@ Rules:
 
 - [ ] Step 4d not started
 
+### Step 4e - Per-folder access (read or edit per folder)
+Added with the user, 19 Nov 2026. Goal: the user gives access folder by folder: any number of outside folders, each with its own right, plus one separate setting for everything else outside. The same model is used by the terminal now and by the GUI later (step 6). The user-facing word for changing files is **edit** (not "write") everywhere: config, chat commands, banner, BLOCKED messages and docs. Can be built before 4c and 4d, so their tools use it from the start (recommended, waiting for the user).
+
+#### 4e.1 Access model
+| Entry | Right | Example |
+| --- | --- | --- |
+| Working folder | `read` or `edit` | `/home/manoj/work`: edit |
+| Folder 1..N (any number) | `none`, `read` or `edit` | `/data/lsdyna/models`: read; `/scratch/manoj/runs`: edit; `/home/manoj/work/reference`: read |
+| Everything else (outside) | `none`, `read` or `edit` | read |
+
+Rules:
+- The most specific (longest) matching folder wins, so access can be widened (`/data` read, `/data/scratch` edit) or narrowed (working folder edit, `reference/` inside it read only).
+- `none` blocks a folder even when everything else is `read`.
+- `edit` includes `read`. Delete needs `edit` on the path plus the user's approval every time (unchanged from 4a).
+- Fixed blocks always win over any entry: system folders, secret names, `.ssh`, `.env`, `.champion`, symbolic links, OS folders such as `/etc` and `/usr` never edited.
+- Folders are stored as real paths (`~`, relative paths and links resolved when added); a folder that does not exist, is a link, or is a system or secret folder is refused.
+- Only the user can change access; the model can neither see a tool for it nor change it. Every change is one audit row (who, what, old and new right).
+
+#### 4e.2 Presets (the old levels)
+| Preset | Working folder | Everything else |
+| --- | --- | --- |
+| 1.1 | read | none |
+| 1.2 | edit | none |
+| 2.1 | read | read |
+| 2.2 | edit | edit |
+
+- `--level` and `/level` keep working and fill the model from the preset. Adding a folder afterwards shows as `2.1 + 2 folders`.
+- The old `custom` level and `policy.custom` (`read`, `write`, `extra_dirs`) are still read and converted (`write` -> `edit`), with a note in `champion doctor` to move to `access`.
+
+#### 4e.3 Terminal
+Chat:
+
+```text
+you> /access
+Access (this session)
+  #  folder                          right
+  W  /home/manoj/work   (working)    edit
+  1  /data/lsdyna/models             read
+  2  /scratch/manoj/runs             edit
+  3  /home/manoj/work/reference      read
+  *  everything else                 none
+you> /access add /data/results read
+you> /access set 1 edit
+you> /access remove 3
+you> /access outside read          (none | read | edit)
+you> /access working read          (read | edit)
+you> /access preset 2.1
+you> /access save                  (keep for the next start)
+```
+
+- Additions and changes are for this session unless saved (proposed default, waiting for the user). `/access save` shows a diff and writes `~/.champion/access.yaml` (mode 600; on the always-blocked list, so no agent can change it).
+- Wide edit access (`/`, the whole home folder, a parent of the working folder) asks `This allows editing in all of /home/manoj. Continue? [y/N]`; default no.
+- `-q` mode: no `/access`; only the config and command-line options apply.
+
+Command line:
+
+```text
+champion chat --read /data/lsdyna/models --edit /scratch/manoj/runs --outside none
+champion access list | add PATH read|edit | remove PATH | outside none|read|edit | working read|edit
+```
+
+Config (replaces `policy.custom`; `policy.default_level` becomes the starting preset):
+
+```yaml
+access:
+  preset: "1.1"            # starting point; folders below are added on top
+  working: read            # read | edit (overrides the preset)
+  outside: none            # none | read | edit (overrides the preset)
+  folders:
+    - {path: /data/lsdyna/models, right: read}
+    - {path: /scratch/manoj/runs, right: edit}
+```
+
+Priority: command line, then session changes, then `~/.champion/access.yaml`, then `config.yaml`, then the preset.
+
+#### 4e.4 GUI (step 6)
+The same model as a table: folder picker, None/Read/Edit per row, a row for everything else, preset buttons, "keep for next start" box, the wide-edit confirmation as a dialog. The TUI calls the same functions as `/access`, so rules and checks are identical.
+
+#### 4e.5 Code changes
+- `champion/policy/access.py` (new): `AccessPolicy` (working right, folder entries, outside right, preset name), `right_for(path)` (longest match), add/set/remove with checks, presets, load/save `access.yaml`, conversion of `policy.custom`.
+- `champion/policy/scope.py`: `check_path(policy, working_directory, path, right)` uses `right_for`; rights `read` and `edit` (internal right `write` renamed `edit` in `tool_policy.py`, `guard.requires` and all tool rules).
+- `champion/policy/levels.py`: built-in levels become presets.
+- `champion/core/context.py`: the context holds the `AccessPolicy`; `set_level` applies a preset.
+- `champion/tools/guard.py`: `requires("edit")` hides edit tools when no entry allows edit; the Linux specialist is hidden when nothing allows read (4b rule unchanged).
+- `champion/chat.py`: `/access ...`, banner and `/level` show the list; BLOCKED messages name the entry, for example `/scratch/x is read only (folder 1); use /access set 1 edit`.
+- `champion/cli.py`: `--read`, `--edit`, `--outside`, `champion access ...`.
+- `champion/core/config.py`, `config/config.example.yaml`: `access` section, validation, old keys accepted.
+- `champion/tools/session_info.py`: shows the access list.
+- Docs: `docs/steps/04e-folder-access.md`, README access table, REPORT safety section (the user-facing word is edit).
+
+#### 4e.6 Tests (`tests/test_folder_access.py`)
+- Presets give exactly the old level results for the existing tests (inside/outside x read/edit).
+- Nested folders both ways (widen and narrow); `none` blocks inside a readable outside; longest match wins; many folders (for example 50).
+- Link into a folder with a different right refused; folder that does not exist, system folder, secret folder refused when added.
+- Edit refused in a read folder by every step 4a tool (`file_edit`, `files_organize`, `shell_run` `cp`/`mv`/`mkdir`, delete), read allowed; delete still asks for approval.
+- Wide edit asks, default no; `-q` has no `/access`.
+- Session changes not saved unless `/access save`; saved file mode 600 and reloaded; agents cannot edit `~/.champion/access.yaml`.
+- Old `policy.custom` converted (`write` -> `edit`); config validation errors are clear.
+- Every access change is an audit row; the model never gets an access tool.
+- Messages and help use "edit", not "write".
+
+#### 4e.7 Verify
+`champion chat --level 2.1`, then `/access add <models folder> read`, `/access add <runs folder> edit`, `/access outside none`, `/access`: reading the models folder works, editing it is BLOCKED with the `/access set` hint, creating a folder in the runs folder works and is listed in `/changes`, reading any other outside folder is BLOCKED; `/access save`, restart, `/access` shows the same list.
+
+- [ ] Step 4e not started
+
 ### Design principle for future steps
 Champion follows a GitHub Copilot-like division of responsibility:
 
@@ -837,6 +943,7 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * One framework only (OpenAI Agents SDK); no LangGraph or CrewAI versions, to save time. (User, in conversation, 16 Nov 2026.)
 
 ## Open decisions
+* Step 4e (per-folder access), proposed and waiting for the user: changes from `/access` are for the session unless `/access save` (proposed) or saved at once; delete stays "edit + approval every time" (proposed) or becomes its own right per folder; build 4e before 4c/4d (proposed) or with the GUI in step 6.
 * Step 4d (`file_transform`), proposed and waiting for the user: `edit.transform_backup_max_bytes` 2 GiB (larger files only with an `output` file); `upper`/`lower` ASCII only like `tr a-z` (Unicode later); `apply_patch` without fuzz, offset up to 100 lines; in-place undo by full copy in the first version.
 * Step 4c script tools: how many existing scripts, which only read and which write or delete, and which environment settings (licences, modules) they need.
 * File-size limit for files written by commands (`cp`, `tar`, `mv` to another disk): proposal `execution.max_command_file_bytes`, default 8 GiB (same as `pydyna.max_model_bytes`), because `execution.max_output_file_bytes` (100 MiB, meant for generated code) would stop copies of normal LS-DYNA models.
