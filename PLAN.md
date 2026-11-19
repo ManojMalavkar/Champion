@@ -77,7 +77,7 @@ Goal: a working multi-agent demo for the interview as soon as possible. Decided 
 | done | 0-2 | Config, doctor, first agent, access levels, file tools, audit | Safety story |
 | 1 | 2a | Small fixes | Clean test run |
 | 2 | 3 | Orchestrator and specialist plug-in interface | Shows the multi-agent design |
-| 3 | 4 (4a, 4b, 4c) | Safe command runner and file search (4a), Linux specialist (4b), your existing shell scripts as checked tools (4c) | Quick to build, easy to demo; shows a safe shell and reuse of existing scripts |
+| 3 | 4 (4a, 4b, 4c, 4d) | Safe command runner and file search (4a), Linux specialist (4b), your existing shell scripts as checked tools (4c), text transforms without a shell (4d) | Quick to build, easy to demo; shows a safe shell, reuse of existing scripts and why structured tools beat free commands |
 | 4 | 5 | PyDyna knowledge specialist on the existing knowledge base | Core CAE value |
 | 5 | 6 | Textual TUI | Looks good in a demo |
 | 6 | 7 | Large-model reading (index, outline, find, read range) | Shows the 1-8 GB handling |
@@ -627,6 +627,65 @@ scripts:
 
 - [ ] Step 4c not started
 
+### Step 4d - `file_transform`: text transforms without a shell
+Added with the user, 19 Nov 2026. Goal: the Linux agent can do the jobs of `tr`, `paste`, `fmt`, `fold`, `dos2unix`/`unix2dos` and `patch` on files. These commands stay blocked in `shell_run`: without a shell there is no `<` or `>` (so `tr` cannot even read a file and the others can only print), and `patch` can create, delete or rename files named inside the patch (some versions run `ed` scripts). Instead, one structured tool written in Python, built like `file_edit`: checked paths, streaming, atomic writes, change list and `/undo`. Independent of 4c; can be built before or after it.
+
+#### 4d.1 Tool `file_transform` (write)
+Parameters: `operation`, `path` (source file), `output` (new file; omit = change the file in place), and the options of the operation.
+
+| Operation | Replaces | Options |
+| --- | --- | --- |
+| `upper`, `lower` | `tr 'a-z' 'A-Z'` | none (ASCII letters, like `tr a-z`) |
+| `delete_chars` | `tr -d` | `chars`: classes `digits`, `punctuation`, `spaces`, `tabs`, `cr`, and/or up to 64 literal characters |
+| `squeeze` | `tr -s` | `chars` as above: runs of the same character become one |
+| `line_endings` | `dos2unix`, `unix2dos` | `to`: `lf` or `crlf`; mixed endings counted and reported |
+| `wrap` | `fold -w`, `fold -s -w` | `width` (1-1000), `at_spaces` (default true) |
+| `reflow` | `fmt -w`, `fmt -u` | `width` (default 75), `uniform_spacing`; blank lines separate paragraphs |
+| `columns` | `paste -d ',' a b` | `sources` (2-10 files, read-checked), `delimiter` (1-8 characters, no newline); `output` required; shorter files give empty fields |
+| `join_lines` | `paste -d ':' - -` | `every` (2-100 lines), `delimiter` |
+| `apply_patch` | `patch`, `patch -R` | `patch_file` (unified diff, at most 1 MiB, read-checked), `reverse` |
+
+Rules:
+- Write level (1.2, 2.2 or custom with write), no approval prompt (nothing is deleted); every source checked as read, `path` (in place) or `output` checked as write, with the Step 2 checks (scope, secrets, links, `.champion`).
+- `output` must not exist (never overwrite) and must not be the source; in place is the explicit way to change the source.
+- Text files only (binary refused); UTF-8 or Latin-1 kept; line endings kept except by `line_endings`.
+- Streaming: memory about one chunk or one line; files up to `pydyna.max_model_bytes` (8 GiB); `reflow` keeps one paragraph in memory, refused above 1 MiB per paragraph; lines longer than 1 MiB refused for line-based operations.
+- Same write path as `file_edit`: free disk space at least the new file + 5 %, temporary file, `fsync`, unchanged-check of the source, atomic `os.replace`; on error or timeout (`execution.timeout_seconds`) the temporary file is removed and nothing changes.
+- `apply_patch`: unified diffs only; only the file given in `path` is changed (file names in the patch headers must name that file; no new, deleted or renamed files, no `ed` scripts, no binary patches); every hunk is checked before anything is written; context must match exactly (no fuzz), a hunk may be found up to 100 lines from its line number (offset reported); one failed hunk = nothing changed, with the hunk number and reason.
+- Result: what was done (lines and bytes before and after, characters changed, hunks applied, offsets), a short preview (at most 20 changed lines, keys hidden like command output) and the `/changes` number. The audit row holds the operation, options, paths and sizes, never file content.
+
+#### 4d.2 Change list and undo
+- New `output` file: listed as `created`; `/undo` deletes it if its SHA-256 is unchanged since the transform.
+- In place: a copy of the original is kept in `.champion/backups/<session>/` (mode 600) and `/undo` restores it if the file is unchanged since. A file larger than `edit.transform_backup_max_bytes` (proposed 2 GiB) is not changed in place: the tool asks for an `output` file instead, so a 5 GB model is never doubled in the backup folder. The free-space check includes the backup.
+- `apply_patch` in place could use a reverse patch instead of a full copy (like `file_edit`); first version uses the copy for every operation.
+
+#### 4d.3 Linux agent
+- `file_transform` added to `linux_coder`'s tools (after `files_organize`) and its instructions: use it for case, character, line-ending, wrapping, column and patch jobs; never ask for `tr`, `sed`, `awk`, `fmt`, `fold`, `paste`, `dos2unix` or `patch`.
+- Routing hints: "convert script.sh to Unix line endings", "merge names.txt and emails.txt into contacts.csv", "apply changes.patch to config.conf".
+- `tr`, `paste`, `fmt`, `fold`, `dos2unix`, `unix2dos`, `patch` stay outside the command list; the BLOCKED text for them points to `file_transform`.
+
+#### 4d.4 Files
+- `champion/tools/transform.py`: operations (streaming), unified-diff parser and applier, the tool and its policy entry.
+- `champion/tools/text_patch.py`: shared helpers (`sniff`, `encode`, temporary write) reused; `champion/tools/changes.py`: undo for `created` files and backup restore.
+- `champion/execution/command_policy.py`: BLOCKED hint for the replaced commands.
+- `champion/specialists/linux.py`: tool, instruction line, hints. `champion/core/config.py` and `config/config.example.yaml`: `edit.transform_backup_max_bytes`.
+- `docs/steps/04d-file-transform.md`.
+
+#### 4d.5 Tests (`tests/test_file_transform.py`)
+- Each operation against a known result, including the examples above (`tr 'a-z' 'A-Z'`, `tr -d '0-9'`, `tr -s ' '`, `paste -d ','`, `paste -d ':' - -`, `fmt -w 75`, `fold -s -w 60`, `dos2unix`, `unix2dos`, `patch`, `patch -R`); where the GNU tool is installed, the output is compared with it.
+- Chunk borders (small chunk size): CRLF split across chunks, a squeeze run across chunks, a multi-byte UTF-8 character across chunks.
+- Latin-1 kept; binary refused; mixed line endings reported.
+- `output` exists or equals the source -> refused; no leftovers after a simulated failure or timeout; large file (for example 40 MiB) with bounded memory.
+- `apply_patch`: offset hunk applied and reported; context mismatch, fuzz needed, header naming another file, file creation/deletion/rename, `ed` script, binary patch -> refused, file unchanged; reverse restores the original bytes.
+- Levels: refused at 1.1 and 2.1 (tool not offered), runs at 1.2 without a prompt; outside path at 1.2 and secret paths at 2.2 refused.
+- Undo: created file removed; in place restored; refused after the file changed; above the backup limit in place refused with the `output` hint.
+- Through the Linux specialist with the scripted model: "convert script.sh to Unix line endings" -> `[Linux] -> file_transform(...)`; `/changes`, `/undo`.
+
+#### 4d.6 Verify
+`champion chat --level 1.2`: "Make input.txt upper case into output.txt", "Remove all digits from input.txt", "Squeeze repeated spaces in notes.txt", "Merge names.txt and emails.txt into contacts.csv", "Join every two lines of pairs.txt with a colon", "Rewrap messy_notes.txt to 75 characters", "Wrap long_line.txt at 80 characters", "Convert script.sh to Unix line endings", "Apply changes.patch to config.conf", then `/changes` and `/undo`. At 1.1 each is BLOCKED with the `/level` hint; `Run tr a-z A-Z` is BLOCKED with the pointer to `file_transform`.
+
+- [ ] Step 4d not started
+
 ### Design principle for future steps
 Champion follows a GitHub Copilot-like division of responsibility:
 
@@ -778,6 +837,7 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * One framework only (OpenAI Agents SDK); no LangGraph or CrewAI versions, to save time. (User, in conversation, 16 Nov 2026.)
 
 ## Open decisions
+* Step 4d (`file_transform`), proposed and waiting for the user: `edit.transform_backup_max_bytes` 2 GiB (larger files only with an `output` file); `upper`/`lower` ASCII only like `tr a-z` (Unicode later); `apply_patch` without fuzz, offset up to 100 lines; in-place undo by full copy in the first version.
 * Step 4c script tools: how many existing scripts, which only read and which write or delete, and which environment settings (licences, modules) they need.
 * File-size limit for files written by commands (`cp`, `tar`, `mv` to another disk): proposal `execution.max_command_file_bytes`, default 8 GiB (same as `pydyna.max_model_bytes`), because `execution.max_output_file_bytes` (100 MiB, meant for generated code) would stop copies of normal LS-DYNA models.
 * HPC agent (`agent/hpc`): scheduler type on the Linux machine (Slurm or PBS) and which commands it may run.
