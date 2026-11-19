@@ -82,10 +82,20 @@ champion access working edit
    editing is not allowed there (the user can change it with /access set 1 edit)
 <- filesystem_read: BLOCKED: /home/me/other/o.k is outside the working folder /data/work and the
    user's folders; access 1.1 + 2 folders gives everything else 'none', so reading is not allowed there
-   (the user can add the folder with /access add PATH read, or choose level 2.1 / 2.2)
+   (the user can add the folder with /access add PATH read, or allow it everywhere else with /access outside read)
 ```
 
-The agent reports this to the user; it has no tool to change access.
+The agent reports this to the user; it has no tool to change access. The orchestrator and Linux instructions list the real `/access` commands and say "repeat the command the reason names, do not invent others"; `session_info` returns the list (`access_list`) and the commands (`how_to_change_access`).
+
+## Fixes after the local check (4e.8)
+
+The live check on the Linux machine (19 Nov 2026) passed and found these, now fixed:
+
+* **`~` and a linked `/home`.** There `/home` is a link to `/d/people`, so `~/models/car.k` was refused as a link and `shell_run ["ls", "~/x"]` looked for a folder named `~` (commands run without a shell). Now a leading `~` (also `--option=~/x`) becomes the real home path before any check, in file tools and commands alike. Every other link is still refused; `~/.champion` is still blocked.
+* **Invented commands.** The agents suggested `/access set 2.2 edit` and "write access"; the instructions and `session_info` now give the real commands and the word "edit".
+* **`/access set 2.2 edit`** from the user now says "2.2 is a preset, not a folder number; use /access preset 2.2".
+* **`champion access ...` is audited** (tool `champion access`, agent `user`, the diff in the reason), like `/access` in the chat.
+* **Calm refusals.** Lines starting with `champion` pasted into the chat are "for your terminal, after /exit", not an attack.
 
 ## Code
 
@@ -99,7 +109,7 @@ The agent reports this to the user; it has no tool to change access.
 
 ## Tests
 
-`tests/test_folder_access.py` (15 tests):
+`tests/test_folder_access.py` (18 tests; the last 3 for 4e.8: linked home with `~` in tools and commands, preset hint and `champion access` audit rows, the agents' `/access` text and `session_info`):
 
 * Presets give exactly the old level results (inside/outside x read/edit; `write` still works as the old name).
 * Nested folders both ways, `none` inside a readable outside, longest match, 50 folders, changing a listed folder instead of adding it twice.

@@ -155,7 +155,8 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
   * Every check (`scope.py`, guard, edit tools, `/undo`, command policy) uses the list; BLOCKED messages name the entry and the exact command that would allow it (`/access set 1 edit`).
   * `/access` in the chat (add, set, remove, outside, working, preset, save with diff), `champion chat --read/--edit/--outside`, `champion access ...`, and an `access` section in `config.yaml`. `/level` keeps the folders. Changes are for the session until `/access save`.
   * User-facing word "edit" instead of "write" everywhere (`write` still accepted in old configs).
-* **Evidence:** 209 tests (15 new in `tests/test_folder_access.py`); 208 pass on Databricks serverless, the doctor exit-code test needs `textual` and is in the pending local checks. Presets give exactly the old results; 50 folders; a link from a read folder into an edit folder refused; `cp` into a read folder refused, into an edit folder listed in `/changes`; `rm` still asks; 7 audit rows for 7 accepted changes; a saved file others can write is ignored. A scripted chat of the PLAN 4e.7 check passed (read, BLOCKED edit with hint, `mkdir` in the edit folder, other folder BLOCKED, save, restart shows the same list). Live check on the Linux machine pending (list in `PLAN.md`).
+* **Evidence:** 209 tests (15 new in `tests/test_folder_access.py`); 208 pass on Databricks serverless, the doctor exit-code test needs `textual` and is in the pending local checks. Presets give exactly the old results; 50 folders; a link from a read folder into an edit folder refused; `cp` into a read folder refused, into an edit folder listed in `/changes`; `rm` still asks; 7 audit rows for 7 accepted changes; a saved file others can write is ignored. A scripted chat of the PLAN 4e.7 check passed (read, BLOCKED edit with hint, `mkdir` in the edit folder, other folder BLOCKED, save, restart shows the same list). Live check on the Linux machine passed (19 Nov 2026, user): 210 tests, all `/access` rows as expected, saved file mode 600, `champion access` diffs, `--read` not saved, the agent refused to change its access.
+* **4e.8 fixes from that check:** a leading `~` now uses the real home path (there `/home` is a link, so `~/...` was refused and commands saw a folder named `~`); the agents' instructions and `session_info` give the real `/access` commands (they had invented `/access set 2.2 edit`); a preset number in `/access set` points to `/access preset`; `champion access` changes are audited; pasted terminal commands get a calm one-line answer. 212 tests (3 new); 211 pass on Databricks serverless (doctor exit-code test runs locally).
 * **Lessons:** making the old levels presets of the new model kept every earlier test meaningful; only wording changed. The access list must be user-only: no tool, its file under a blocked folder, and every change audited, otherwise a prompt injection could widen access.
 
 ## 7. Metrics
@@ -169,7 +170,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 3 | 135 | `specialists/base.py`, `specialists/registry.py`, `agents/orchestrator.py`, `SpecialistHooks`, `run_guarded_async` | Step 3 |
 | 4a | 188 | `tools/walk.py`, `search.py`, `system.py`, `text_patch.py`, `edit.py`, `changes.py`, `shell.py`; `execution/command_policy.py`, `approval.py`, `commands.py` | Step 4a |
 | 4b | 194 | `specialists/linux.py`; `specialist_enabled` in `agents/orchestrator.py` | Step 4b |
-| 4e | 209 | `policy/access.py`, `access_commands.py`; `access` section in `core/config.py` | Step 4e |
+| 4e | 212 | `policy/access.py`, `access_commands.py`; `access` section in `core/config.py` | Step 4e |
 
 ## 8. Demo script (current state)
 

@@ -1501,6 +1501,26 @@ These need the project installed (`pip install -e .[dev]`) and could not run her
 6. `champion chat --read <folder> -q "list the files in <folder>"` works without changing the saved file.
 7. Ask the agent to change `~/.champion/access.yaml` or its own access: it must refuse (no access tool; the folder is blocked).
 
+Results on the Linux machine (19 Nov 2026, run by the user):
+- [x] 1. `pytest -q`: 210 passed (doctor and folder-access tests: 31 passed).
+- [x] 2. `champion doctor --online`: all local checks OK; 6 FAIL only for the `claude-opus-*` fallback models (HTTP 403, no permission on the AI Gateway). Config issue, not code: remove them from `llm.model_ids` or ask for EXECUTE.
+- [x] 3. Live `/access`: add read/edit folders, `outside none`, the table, read in the read folder, edit there BLOCKED with the `/access set 2 edit` hint, `results` created in the edit folder and listed in `/changes`, the other folder BLOCKED, `/access save` with diff: all as expected. Saved file `-rw-------`; a new `champion chat` and `champion access list` show the same list, no warnings.
+- [x] 4. `/access add ~ edit` asked `Continue? [y/N]` (the user answered y, so the home folder was added and saved; remove it again with `champion access remove ~`).
+- [x] 5. `champion access add ~/champ-test/other read` and `remove` showed the right diffs; `remove ~` said "not in the list" (correct for the file at that time).
+- [x] 6. `champion chat --read ~/champ-test/other -q ...` listed `notes.txt`; `champion access list` afterwards unchanged (the `--read` folder was not saved). The `~` link problem (below) showed again: BLOCKED once, then the real path.
+- [x] 7. The agent refused to change `access.yaml`, with no tool call; `.champion` blocked by `shell_run`.
+
+#### 4e.8 Fixes from the local check - built
+Status: built; 212 tests (3 new in `tests/test_folder_access.py`; the step 4b security test now counts the 4 blocks in the audit, because `filesystem_read` and `head` now give the same BLOCKED text); 211 pass on Databricks serverless, the doctor exit-code test runs locally. `~` is expanded on each check (not once at start), so the current `HOME` is always used.
+Pending local check: `pytest -q` (212 passed); in a chat on the Linux machine, "Show the start of ~/champ-test/models/car.k" works in one call (no link BLOCKED), "run ls -l ~/champ-test/runs" lists the folder, a BLOCKED edit names only real `/access` commands, `/access set 2.2 edit` suggests `/access preset 2.2`, a pasted `champion ...` line gets a calm one-line answer; after `champion access add ~/champ-test/other read`, `/audit` in a new chat shows no row (other session) but `sqlite3 champion.db "select tool, agent, reason from tool_events where tool='champion access'"` does.
+
+Problems found (all fixed in 4e.8):
+- **`~` in tool paths.** `/home` is a link to `/d/people` on this machine, so `filesystem_read("~/...")` was BLOCKED as "symbolic link" (the model retried with the real path), and `shell_run` took `~/.champion/access.yaml` as a folder named `~` in the working folder (commands run without a shell, so nothing expands `~`). Fix: expand a leading `~` in tool and command path arguments to the real path of the user's home folder (`realpath(expanduser("~"))`, resolved once at start); other links stay refused.
+- **The agents do not know the `/access` commands.** They suggested commands that do not exist (`/access set 2.2 edit`, "increase to 2.1 with /access set") and still say "write access" and "access level 1.2". Fix: one short `/access` summary in the orchestrator and Linux instructions and in `session_info` (folders with their rights), using the word "edit".
+- **`/access set 2.2 edit` from the user:** the error should suggest `/access preset 2.2` when the number looks like a preset.
+- **`champion access ...` writes no audit row.** Changes in the chat are audited (`set_access`), but command-line changes are not, so it cannot be shown who removed the saved home-folder entry: after `/access save` the file had 4 folders including `/d/people/t0018k6` (diff seen), later (file time 19:22) only 3; only `/access save` and `champion access add/remove/outside/working` write the file. Fix: `cli_access` records one audit row per saved change (agent `user`, tool `champion access`, with the diff).
+- **Refusals too dramatic:** when the user pasted shell commands into the chat, the agent called them "attempts to circumvent" access control. Fix: in the instructions, say plainly that `champion ...` lines are run in the user's terminal, not by the agent, with no accusation.
+
 ### Design principle for future steps
 Champion follows a GitHub Copilot-like division of responsibility:
 

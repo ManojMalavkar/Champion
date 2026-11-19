@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from champion.policy.levels import AccessLevel
-from champion.policy.scope import PolicyDenied, check_path
+from champion.policy.scope import PolicyDenied, check_path, expand_home
 from champion.policy.sensitive import name_reason
 
 CLASSES = ("read", "write", "delete", "process_control", "blocked")
@@ -459,6 +459,18 @@ def _absolute(raw: str, cwd: Path) -> str:
     return raw if os.path.isabs(raw) else str(cwd / raw)
 
 
+def _home_argument(token: str) -> str:
+    """Expand a leading ``~`` like a shell would (commands run without a shell, step 4e.8).
+
+    Done before any check, so the checks and the command see the same real path.
+    Also ``--option=~/x``.
+    """
+    if token.startswith("-") and "=" in token:
+        name, _, value = token.partition("=")
+        return f"{name}={expand_home(value)}"
+    return expand_home(token)
+
+
 def check_command(argv: list[str], level: AccessLevel, work: Path, cwd: Path | None = None) -> CommandCheck:
     """Decide one command. Raises ``PolicyDenied`` with a clear reason, or returns the check."""
     cwd = cwd or work
@@ -468,6 +480,7 @@ def check_command(argv: list[str], level: AccessLevel, work: Path, cwd: Path | N
         _deny(f"command too long (at most {MAX_ARGS} arguments of {MAX_ARG_CHARS} characters)")
     if any("\x00" in a for a in argv):
         _deny("arguments must not contain NUL characters")
+    argv = [argv[0], *(_home_argument(a) for a in argv[1:])]
     command = argv[0]
     if "/" in command or not command:
         _deny(f"give the command by name (for example 'ls'), not as a path: {command!r}")

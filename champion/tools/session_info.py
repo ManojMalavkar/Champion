@@ -34,6 +34,15 @@ def describe_session(context: ChampionContext) -> dict:
         "access_level": context.access_level,
         "access": context.level.describe(),
         "access_level_enforced": True,
+        "access_list": {  # step 4e: what the user allowed, per place
+            "working_folder": context.level.working,
+            "folders": [{"number": i, "path": str(f.path), "right": f.right}
+                        for i, f in enumerate(context.level.folders, 1)],
+            "everything_else": context.level.outside,
+        },
+        "how_to_change_access": "only the user, in the chat: /access (show), /access add PATH read|edit|none, "
+                                "/access set N read|edit|none, /access remove N, /access outside none|read|edit, "
+                                "/access preset 1.1|1.2|2.1|2.2, /level NAME, /access save",
         "enabled_specialists": sorted(name for name, a in agents.items() if a.get("enabled", True)),
         "specialists_available_now": list(context.specialists),  # tools offered to the orchestrator
         "model": context.config.get("llm.model_id"),
@@ -43,7 +52,8 @@ def describe_session(context: ChampionContext) -> dict:
 @function_tool
 async def session_info(ctx: RunContextWrapper[ChampionContext]) -> str:
     """Get facts about the current Champion session: version, local date and time,
-    working directory, selected access level (what may be read and written),
+    working directory, the user's access list (where reading and editing are allowed, and the
+    exact /access commands the user can type to change it),
     configured specialists and model. Use it when the user asks about the session,
     the time or date, the folder or the access level. It reads no files."""
     return await run_guarded(ctx, "session_info", {},

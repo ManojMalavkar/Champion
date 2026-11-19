@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from champion import cli
-from champion.access_commands import chat_access
+from champion.access_commands import chat_access, cli_access
 from champion.chat import HELP
 from champion.core.config import ConfigError, load_config
 from champion.core.context import ChampionContext
@@ -255,6 +255,77 @@ def test_cli_access_and_chat_flags(env, capsys):
     assert cli.main(["--config", path, "access", "add", str(tmp_path / "missing"), "read"]) == 2
     args = cli.build_parser().parse_args(["chat", "--read", str(models), "--edit", str(runs), "--outside", "none"])
     assert (args.read, args.edit, args.outside) == ([str(models)], [str(runs)], "none")
+
+
+# ------------------------------------------------------------- step 4e.8 (found in the local check)
+
+@pytest.fixture
+def linked_home(tmp_path, monkeypatch):
+    """Like the Linux machine: /home is a link to /d/people, HOME=/home/me."""
+    real = (tmp_path / "d" / "people" / "me").resolve()
+    real.mkdir(parents=True)
+    (tmp_path / "home").symlink_to(tmp_path / "d" / "people")
+    monkeypatch.setenv("HOME", str(tmp_path / "home" / "me"))
+    (real / "proj").mkdir()
+    (real / "proj" / "car.k").write_text("*KEYWORD\n*END\n")
+    return real
+
+
+def test_home_tilde_uses_the_real_home(env, linked_home):
+    from champion.execution.command_policy import check_command
+
+    _, work, _, _ = env
+    level = BUILT_IN["1.1"].with_folder(linked_home / "proj", "read")
+    assert check_path(level, work, "~/proj/car.k", "read") == linked_home / "proj" / "car.k"
+    with pytest.raises(PolicyDenied, match="/home is a link|symbolic link"):  # the link itself still refused
+        check_path(level, work, str(Path(os.environ["HOME"]) / "proj" / "car.k"), "read")
+    (linked_home / "proj" / "jump").symlink_to(work)
+    with pytest.raises(PolicyDenied, match="symbolic link"):  # other links still refused
+        check_path(level, work, "~/proj/jump/main.k", "read")
+    with pytest.raises(PolicyDenied, match="own folder"):
+        check_path(BUILT_IN["2.2"], work, "~/.champion/access.yaml", "read")
+    check = check_command(["ls", "-l", "~/proj"], level, work)
+    assert check.argv == ["ls", "-l", str(linked_home / "proj")] and check.reads == [linked_home / "proj"]
+    with pytest.raises(PolicyDenied, match="own folder"):  # no folder named '~' in the working folder
+        check_command(["ls", "-l", "~/.champion/access.yaml"], BUILT_IN["2.2"], work)
+    assert check_command(["grep", "-n", "~x", "main.k"], level, work).argv[2] == "~x"  # only ~ and ~/
+
+
+def test_preset_hint_and_cli_audit(env):
+    tmp_path, work, models, _ = env
+    config = config_for(tmp_path, work)
+    context = ChampionContext.from_config(config, level="1.2", audit=AuditLog())
+    out = chat_access(context, "set 2.2 edit")
+    assert "Access not changed" in out and "/access preset 2.2" in out
+    audit, saved = AuditLog(), tmp_path / "state" / "access.yaml"
+    code, _ = cli_access(config, "add", [str(models), "read"], saved, audit=audit)
+    assert code == 0
+    assert cli_access(config, "add", [str(tmp_path / "missing"), "read"], saved, audit=audit)[0] == 2
+    assert cli_access(config, "remove", [str(models)], saved, audit=audit)[0] == 0
+    rows = [r for r in audit.recent(20) if r["tool"] == "champion access"]
+    assert len(rows) == 2 and all(r["agent"] == "user" for r in rows)  # refused change: no row
+    assert any("+- path: " + str(models) in r["reason"] for r in rows)  # the diff is in the row
+
+
+def test_agents_know_the_access_commands(env):
+    from champion.agents.orchestrator import orchestrator_instructions
+    from champion.specialists.linux import LINUX
+    from champion.tools.session_info import describe_session
+
+    tmp_path, work, models, _ = env
+    text = orchestrator_instructions([LINUX])
+    for phrase in ("/access set N read|edit|none", "/access preset 1.1|1.2|2.1|2.2", "say \"edit\", not \"write\"",
+                   "for the user's terminal", "never accuse the user", "do not invent other commands"):
+        assert phrase in text
+    assert "/access add PATH read" in LINUX.instructions and "level 2.1 or 2.2" not in LINUX.instructions
+    context = ChampionContext.from_config(config_for(tmp_path, work), level="1.1", read=(str(models),))
+    info = describe_session(context)
+    assert info["access_list"] == {"working_folder": "read", "everything_else": "none",
+                                   "folders": [{"number": 1, "path": str(models), "right": "read"}]}
+    assert "/access add PATH" in info["how_to_change_access"]
+    with pytest.raises(PolicyDenied, match="/access outside read") as blocked:
+        check_path(context.level, work, str(tmp_path / "elsewhere" / "x.k"), "read")
+    assert "level 2.1" not in str(blocked.value)
 
 
 def test_no_access_tool_and_edit_wording(env):
