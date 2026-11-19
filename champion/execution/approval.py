@@ -2,7 +2,8 @@
 
 Writes at a write level run without a prompt (they go to the change list).
 Deletes (``rm``) - and process control in a later step - ask the user every
-time. The request shows exactly what will run: the resolved program, the
+time. Step 4d: a higher-risk ``file_edit`` (many lines deleted, a large part
+of a file changed) asks once too (class ``edit``, the change in ``note``). The request shows exactly what will run: the resolved program, the
 argument list, the class, the folder it runs in, the affected paths and the
 level. Default answer is no.
 
@@ -41,6 +42,7 @@ class ApprovalRequest:
     cwd: str
     level: str
     paths: tuple[str, ...]
+    note: str = ""  # what changes, for edits (step 4d)
 
     @classmethod
     def for_command(cls, tool: str, check: CommandCheck, executable: str, level: str) -> "ApprovalRequest":
@@ -50,7 +52,7 @@ class ApprovalRequest:
     @property
     def fingerprint(self) -> str:
         data = json.dumps([self.tool, self.executable, list(self.argv), self.command_class, self.cwd, self.level,
-                           list(self.paths)], separators=(",", ":"))
+                           list(self.paths), self.note], separators=(",", ":"))
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     def describe(self) -> str:
@@ -63,6 +65,8 @@ class ApprovalRequest:
         lines += [f"  affects : {p}" for p in shown]
         if len(self.paths) > len(shown):
             lines.append(f"  ... and {len(self.paths) - len(shown)} more path(s)")
+        if self.note:
+            lines.append(f"  change  : {self.note}")
         if self.command_class in WARNINGS:
             lines.append(f"  warning : {WARNINGS[self.command_class]}")
         return "\n".join(lines)

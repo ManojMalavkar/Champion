@@ -77,7 +77,7 @@ Goal: a working multi-agent demo for the interview as soon as possible. Decided 
 | done | 0-2 | Config, doctor, first agent, access levels, file tools, audit | Safety story |
 | 1 | 2a | Small fixes | Clean test run |
 | 2 | 3 | Orchestrator and specialist plug-in interface | Shows the multi-agent design |
-| 3 | 4 (4a, 4b, 4c, 4d, 4e) | Safe command runner and file search (4a), Linux specialist (4b), your existing shell scripts as checked tools (4c), text transforms without a shell (4d), per-folder access with read or edit per folder (4e) | Quick to build, easy to demo; shows a safe shell, reuse of existing scripts, why structured tools beat free commands, and access the user controls folder by folder |
+| 3 | 4 (4a, 4b, 4c, 4d, 4e) | Safe command runner and file search (4a), Linux specialist (4b), your existing shell scripts as checked tools (4c), flexible editing: create, insert, delete, several edits and change sets with undo (4d), per-folder access with read or edit per folder (4e) | Quick to build, easy to demo; shows a safe shell, reuse of existing scripts, why structured tools beat free commands, and access the user controls folder by folder |
 | 4 | 5 | PyDyna knowledge specialist on the existing knowledge base | Core CAE value |
 | 5 | 6 | Textual TUI | Looks good in a demo |
 | 6 | 7 | Large-model reading (index, outline, find, read range) | Shows the 1-8 GB handling |
@@ -627,12 +627,37 @@ scripts:
 
 - [ ] Step 4c not started
 
-### Step 4d - Text transforms and flexible editing
+### Step 4d - Flexible editing (create, insert, delete, several edits, change sets)
+Scope (decided with the user, 19 Nov 2026): step 4d is the flexible-editing plan from commit `745f060` ("Step 4d plan: Flexible Editing for Coder Agents" below). The former `file_transform` plan is kept at the start of this section as a deferred item and is not built in step 4d.
+
+#### 4d.0 Decisions (19 Nov 2026, with the user)
+1. **Fixed blocks win.** Secret and credential files, system folders and `.champion` stay blocked for every editing tool; approval cannot unblock them.
+2. **Approval.** Low-risk edits run without a prompt, like `file_edit` today. A higher-risk change (section 9 below) asks once (`Approve? [y/N]`, default no): whole-file replacement, more than `edit.approval_max_deleted_lines` (100) lines deleted, more than `edit.approval_max_changed_fraction` (0.2) of a file changed, more than `edit.approval_max_files` (10) files in one change set. Without a terminal (`-q`) such a change is refused. Deleting files (`rm`) keeps its own approval every time. There is no "agent mode" setting. Built in 4d.2 (my choice, to be confirmed): the 20 % rule applies only to files of at least `edit.approval_min_bytes` (8 KiB, about 100 lines); otherwise nearly every edit of a small file (a 10-line config) would ask. The 100-lines rule applies to every file. A `dry_run` never asks.
+3. **`expected_sha256`.** Optional in 4d.1-4d.3 (checked when given); from 4d.4 required for every agent edit of an existing file. Reads return the hash from 4d.4 on.
+4. **Order.** 4d.1 and 4d.2 together as one commit, then 4d.3, 4d.4, 4d.5, 4d.6 (Coder Agent), 4d.7; each with tests, `docs/steps/04d-flexible-editing.md`, PLAN status, `docs/REPORT.md` and a commit.
+5. **Linux agent.** It gets each new operation as soon as it is built (several edits in 4d.2, `file_create` in 4d.3), so it can create a file with content without waiting for the Coder Agent. `sed -i`, `awk`, `perl`, `tee` and redirection stay unavailable.
+6. **Large files (proposed).** Anchor operations keep the streaming scan of `file_edit` (files up to 8 GiB); `replace_lines` streams by line number; `file_write` (whole file) only up to `edit.max_write_bytes` (proposed 1 MiB).
+
+Existing foundation (step 4a): `file_edit` (one exact block, exactly one match, streaming, encoding and line endings kept, temporary file + `fsync` + atomic `os.replace`, reverse patch with SHA-256, `/undo` refused if the file changed), `files_organize` (folders, moves, renames), `/changes`, audit rows, per-folder `edit` access (step 4e).
+
+Progress:
+- [x] 4d.1 Common edit model (`edits=[...]`; `old_text`/`new_text` still accepted)
+- [x] 4d.2 `insert_before`, `insert_after`, `delete`, `replace_lines`, several edits, one diff and one undo entry
+
+4d.1 + 4d.2 status (built, 224 tests on serverless; local Linux check pending): `file_edit(path, edits=[...], expected_sha256=None, dry_run=None)`; `old_text`/`new_text` alone is one `replace` (step 4a calls and messages unchanged). Operations `replace` (optional `occurrence`), `delete`, `insert_before`/`insert_after` (exact anchor, optional `occurrence`, `idempotent`), `replace_lines` (`start_line`, `end_line`, mandatory `expected_text`; streaming line search, line break of the last line kept). Fields not used by an operation are refused. At most 20 edits; all are matched against the file before the call, all are checked first (any failure: nothing changes), overlapping edits and two inserts at one place are refused, blocks are applied in file order in one streaming pass (`text_patch.apply_hunks`) and one atomic replace: one diff, one `/changes` entry, one `/undo` (reverse blocks with shifted offsets). The result has a line `File SHA-256 now ...` before the diff (for 4d.4). Higher-risk edits ask once (`ApprovalRequest` class `edit`, `change :` line). Audit rows hold operation names and character counts, never the text. Linux agent instructions list the operations. Not in this step: `encoding`/`newline` parameters (the file's own encoding and line endings are always kept). Tests: `tests/test_flexible_edit.py` (12). Docs: `docs/steps/04d-flexible-editing.md`.
+
+- [ ] 4d.3 `file_create`, `file_write` (size limit, no overwrite unless asked), undo
+- [ ] 4d.4 Hashes from reads, `expected_sha256` required, stale edits refused
+- [ ] 4d.5 Multi-file change sets (check, stage, ordered commit, rollback, undo as one set)
+- [ ] 4d.6 Coder Agent integration
+- [ ] 4d.7 Hardening and local check on the Linux machine
+
+#### Deferred: `file_transform` (the former step 4d plan; not built in step 4d)
 Added with the user, 19 Nov 2026; reduced to a useful first version with the user the same day. Goal: the Linux agent can do the jobs of `tr`, `paste` and `dos2unix`/`unix2dos` on files. These commands stay blocked in `shell_run`: without a shell there is no `<` or `>` (so `tr` cannot even read a file and the others can only print). Instead, one structured tool written in Python, built like `file_edit`: checked paths, streaming, atomic writes, change list and `/undo`. Independent of 4c; can be built before or after it.
 
 Version 1 operations: `upper`, `lower`, `delete_chars`, `squeeze`, `line_endings`, `columns`, `join_lines`. Deferred to a later version: `wrap` (`fold`), `reflow` (`fmt`) and `apply_patch` (`patch`); `patch` in particular needs its own safety design (it can create, delete or rename files named inside the patch, and some versions run `ed` scripts).
 
-#### 4d.1 Tool `file_transform` (write)
+##### T.1 Tool `file_transform` (edit)
 Parameters: `operation`, `path` (source file), `output` (new file; omit = change the file in place), and the options of the operation.
 
 | Operation | Replaces | Options |
@@ -652,24 +677,24 @@ Rules:
 - Same write path as `file_edit`: free disk space at least the new file + 5 %, temporary file, `fsync`, unchanged-check of the source, atomic `os.replace`; on error or timeout (`execution.timeout_seconds`) the temporary file is removed and nothing changes.
 - Result: what was done (lines and bytes before and after, characters changed), a short preview (at most 20 changed lines, keys hidden like command output) and the `/changes` number. The audit row holds the operation, options, paths and sizes, never file content.
 
-#### 4d.2 Change list and undo
+##### T.2 Change list and undo
 - New `output` file: listed as `created`; `/undo` deletes it if its SHA-256 is unchanged since the transform.
 - In place: a copy of the original is kept in `.champion/backups/<session>/` (mode 600) and `/undo` restores it if the file is unchanged since. A file larger than `edit.transform_backup_max_bytes` (proposed 2 GiB) is not changed in place: the tool asks for an `output` file instead, so a 5 GB model is never doubled in the backup folder. The free-space check includes the backup.
 - Version 1 uses the copy for every in-place operation.
 
-#### 4d.3 Linux agent
+##### T.3 Linux agent
 - `file_transform` added to `linux_coder`'s tools (after `files_organize`) and its instructions: use it for case, character, line-ending and column jobs; never ask for `tr`, `sed`, `awk`, `paste`, `dos2unix` or `unix2dos`. Rewrapping text and applying patches are not supported yet; say so instead of trying another command.
 - Routing hints: "convert script.sh to Unix line endings", "merge names.txt and emails.txt into contacts.csv", "join every two lines of pairs.txt with a colon".
 - `tr`, `paste`, `fmt`, `fold`, `dos2unix`, `unix2dos`, `patch` stay outside the command list; the BLOCKED text points to `file_transform` for `tr`, `paste`, `dos2unix` and `unix2dos`, and says `fmt`, `fold` and `patch` are not supported yet.
 
-#### 4d.4 Files
+##### T.4 Files
 - `champion/tools/transform.py`: the seven operations (streaming), the tool and its policy entry.
 - `champion/tools/text_patch.py`: shared helpers (`sniff`, `encode`, temporary write) reused; `champion/tools/changes.py`: undo for `created` files and backup restore.
 - `champion/execution/command_policy.py`: BLOCKED hint for the replaced commands.
 - `champion/specialists/linux.py`: tool, instruction line, hints. `champion/core/config.py` and `config/config.example.yaml`: `edit.transform_backup_max_bytes`.
 - `docs/steps/04d-file-transform.md`.
 
-#### 4d.5 Tests (`tests/test_file_transform.py`)
+##### T.5 Tests (`tests/test_file_transform.py`)
 - Each operation against a known result, including the examples above (`tr 'a-z' 'A-Z'`, `tr -d '0-9'`, `tr -s ' '`, `paste -d ','`, `paste -d ':' - -`, `dos2unix`, `unix2dos`); where the GNU tool is installed, the output is compared with it.
 - Chunk borders (small chunk size): CRLF split across chunks, a squeeze run across chunks, a multi-byte UTF-8 character across chunks.
 - Latin-1 kept; binary refused; mixed line endings reported.
@@ -679,16 +704,15 @@ Rules:
 - Undo: created file removed; in place restored; refused after the file changed; above the backup limit in place refused with the `output` hint.
 - Through the Linux specialist with the scripted model: "convert script.sh to Unix line endings" -> `[Linux] -> file_transform(...)`; `/changes`, `/undo`.
 
-#### 4d.6 Verify
+##### T.6 Verify
 `champion chat --level 1.2`: "Make input.txt upper case into output.txt", "Remove all digits from input.txt", "Squeeze repeated spaces in notes.txt", "Merge names.txt and emails.txt into contacts.csv", "Join every two lines of pairs.txt with a colon", "Convert script.sh to Unix line endings", "Convert report.txt to Windows line endings", then `/changes` and `/undo`. "Rewrap messy_notes.txt to 75 characters" and "Apply changes.patch to config.conf" get a clear "not supported yet" answer. At 1.1 each is BLOCKED with the `/level` hint; `Run tr a-z A-Z` is BLOCKED with the pointer to `file_transform`.
 
-- [ ] Step 4d not started
+- [ ] `file_transform` deferred (not part of step 4d)
 
-The flexible-editing update below supplements the `file_transform` plan above.
+#### Step 4d plan: Flexible Editing for Coder Agents (commit `745f060`)
+
 Champion's fixed protected-path and secret blocks remain mandatory; approval
-cannot override them.
-
-#### Step 4d Update: Flexible Editing for Coder Agents
+cannot override them (decision 1).
 
 ##### 1. Objective
 
@@ -1106,7 +1130,7 @@ Behavior:
 
 - Validate
 - Show concise diff summary
-- Apply according to configured agent mode
+- Apply without a prompt, like `file_edit` today (decision 2)
 - Record change
 
 ###### Higher-risk change
@@ -1118,7 +1142,8 @@ Examples:
 - Modify more than 20% of a file
 - Change more than 10 files
 - Modify executable startup/configuration files
-- Edit files detected as secrets or credentials
+
+Secret and credential files are not in this list: they are always blocked, and approval cannot unblock them (decision 1).
 
 Behavior:
 
@@ -1674,7 +1699,8 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * Tests that need the project installed (doctor with all packages, live chat) are run by the user's local agent on the Linux machine; see "Pending local checks" in step 4e. (User, in conversation, 19 Nov 2026.)
 
 ## Open decisions
-* Step 4d (`file_transform`), proposed and waiting for the user: `edit.transform_backup_max_bytes` 2 GiB (larger files only with an `output` file); `upper`/`lower` ASCII only like `tr a-z` (Unicode later); in-place undo by full copy in the first version. Version 1 scope agreed with the user (19 Nov 2026): `upper`, `lower`, `delete_chars`, `squeeze`, `line_endings`, `columns`, `join_lines`; `wrap`, `reflow` and `apply_patch` deferred.
+* Step 4d flexible editing: `edit.max_write_bytes` for whole-file writes (proposed 1 MiB); the approval limits 100 lines, 0.2 of a file and 10 files are the defaults from the plan.
+* Deferred `file_transform` (no longer step 4d), proposed: `edit.transform_backup_max_bytes` 2 GiB (larger files only with an `output` file); `upper`/`lower` ASCII only like `tr a-z` (Unicode later); in-place undo by full copy in the first version. Version 1 scope agreed with the user (19 Nov 2026): `upper`, `lower`, `delete_chars`, `squeeze`, `line_endings`, `columns`, `join_lines`; `wrap`, `reflow` and `apply_patch` deferred.
 * Step 4c script tools: how many existing scripts, which only read and which write or delete, and which environment settings (licences, modules) they need.
 * File-size limit for files written by commands (`cp`, `tar`, `mv` to another disk): proposal `execution.max_command_file_bytes`, default 8 GiB (same as `pydyna.max_model_bytes`), because `execution.max_output_file_bytes` (100 MiB, meant for generated code) would stop copies of normal LS-DYNA models.
 * HPC agent (`agent/hpc`): scheduler type on the Linux machine (Slurm or PBS) and which commands it may run.

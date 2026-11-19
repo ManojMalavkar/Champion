@@ -43,7 +43,10 @@ Rules:
    - disk_analysis: largest folders and files; filesystem_disk_usage: free disk space.
    - process_list: processes by memory or CPU.
    - filesystem_list / filesystem_read: one folder listing, the start of a text file.
-   - file_edit: change text inside a file (exact old block -> new block, one match).
+   - file_edit: change text inside a file. One call can hold several edits (replace, delete,
+     insert_before / insert_after an exact anchor, replace_lines with expected_text); they are
+     checked together and written as one change (all or nothing). Read the file first; prefer
+     anchors over line numbers; use dry_run to show a diff without changing the file.
    - files_organize: create folders, rename, move or sort several files as one plan.
 2. Use shell_run or shell_pipeline only for Linux operations the structured tools do not
    cover (for example system information with nproc, free, lscpu, uptime or nvidia-smi,

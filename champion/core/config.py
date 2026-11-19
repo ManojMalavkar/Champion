@@ -81,7 +81,13 @@ DEFAULTS: dict[str, Any] = {
         "max_output_file_bytes": 100 * MiB,
         "max_command_file_bytes": 8 * GiB,  # largest file a shell command may write (step 4a)
     },
-    "edit": {"full_backup": False},
+    "edit": {
+        "full_backup": False,
+        # step 4d: a higher-risk edit asks the user once (Approve? [y/N])
+        "approval_max_deleted_lines": 100,    # more lines deleted than this
+        "approval_max_changed_fraction": 0.2,  # more of the file changed than this ...
+        "approval_min_bytes": 8192,           # ... for files of at least this size
+    },
     "storage": {"audit_db": "champion.db", "log_dir": "logs"},
     "agents": {"pydyna": {"enabled": True}, "linux_coder": {"enabled": True}},
     "pydyna": {
@@ -348,6 +354,11 @@ def validate(data: dict) -> list[str]:
                 "max_command_file_bytes"):
         positive_int(f"execution.{key}")
     boolean("edit.full_backup")
+    positive_int("edit.approval_max_deleted_lines")
+    positive_int("edit.approval_min_bytes")
+    fraction = get("edit.approval_max_changed_fraction")
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction <= 1:
+        errors.append(f"edit.approval_max_changed_fraction must be a number above 0 and at most 1 (got {fraction!r})")
 
     for key in ("large_file_bytes", "max_model_bytes", "max_include_files", "max_include_depth",
                 "model_timeout_seconds", "max_memory_bytes"):

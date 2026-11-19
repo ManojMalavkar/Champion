@@ -159,6 +159,16 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **4e.8 fixes from that check:** a leading `~` now uses the real home path (there `/home` is a link, so `~/...` was refused and commands saw a folder named `~`); the agents' instructions and `session_info` give the real `/access` commands (they had invented `/access set 2.2 edit`); a preset number in `/access set` points to `/access preset`; `champion access` changes are audited; pasted terminal commands get a calm one-line answer. 212 tests (3 new); 211 pass on Databricks serverless (doctor exit-code test runs locally).
 * **Lessons:** making the old levels presets of the new model kept every earlier test meaningful; only wording changed. The access list must be user-only: no tool, its file under a blocked folder, and every change audited, otherwise a prompt injection could widen access.
 
+### Step 4d.1 + 4d.2 - Several edits in one change
+* **Built:**
+  * `file_edit` takes a list of edits: `replace` (with `occurrence` for repeated text), `delete`, `insert_before` / `insert_after` an exact anchor (`idempotent` skips text already present), `replace_lines` (line numbers plus the mandatory current text). The step 4a call (`old_text`, `new_text`) is one `replace`.
+  * All edits are matched against the file before the call and checked first; one failure, an overlap or two inserts at one place means nothing changes. The blocks are written in one streaming pass (`text_patch.apply_hunks`) and one atomic replace: one diff, one `/changes` entry, one `/undo`.
+  * `dry_run` shows the diff only; `expected_sha256` refuses an edit of a file that changed since it was read; the result gives the new SHA-256.
+  * A higher-risk edit asks once (more than 100 lines deleted; more than 20 % of a file of at least 8 KiB changed); refused without a terminal. Settings `edit.approval_*`.
+  * The Linux agent uses the new operations (PLAN 4d.0 decision 5).
+* **Evidence:** 224 tests (12 new in `tests/test_flexible_edit.py`); 223 pass on Databricks serverless (doctor exit-code test runs locally). All 212 earlier tests pass unchanged through the new engine. Covered: four operations in one call and their undo, all-or-nothing, overlaps, wrong fields, occurrence, idempotent insert, `replace_lines` across chunk borders and on a last line without newline, CRLF and Latin-1, undo with blocks that grow and shrink, hash check, dry run, approval yes/no/none, strict tool schema, a scripted chat through the Linux agent with an audit row that holds no file text.
+* **Lessons:** matching every edit against the original file (not one after another) makes a list of edits predictable and lets all of them be checked before anything is written.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -171,6 +181,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 4a | 188 | `tools/walk.py`, `search.py`, `system.py`, `text_patch.py`, `edit.py`, `changes.py`, `shell.py`; `execution/command_policy.py`, `approval.py`, `commands.py` | Step 4a |
 | 4b | 194 | `specialists/linux.py`; `specialist_enabled` in `agents/orchestrator.py` | Step 4b |
 | 4e | 212 | `policy/access.py`, `access_commands.py`; `access` section in `core/config.py` | Step 4e |
+| 4d.1-4d.2 | 224 | `EditOperation` and `edit_file_ops` in `tools/edit.py`; `apply_hunks`, `line_range` in `tools/text_patch.py` | Step 4d.1-4d.2 |
 
 ## 8. Demo script (current state)
 

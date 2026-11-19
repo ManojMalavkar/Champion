@@ -63,6 +63,10 @@ execution:
 
 edit:
   full_backup: false                # true = full copy before editing a large deck
+  # A higher-risk file_edit asks once (Approve? [y/N]; refused with -q):
+  approval_max_deleted_lines: 100   # more lines deleted than this
+  approval_max_changed_fraction: 0.2  # more of the file changed than this ...
+  approval_min_bytes: 8192          # ... for files of at least this size (small files: lines rule only)
 
 storage:
   audit_db: champion.db

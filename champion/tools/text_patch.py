@@ -8,9 +8,10 @@ Two passes:
    ``len(needle) - 1`` bytes, so a match across a chunk border is found.
    Every match is counted (overlapping ones too), with byte offset and line
    number. Memory: one chunk plus the needle.
-2. ``apply_patch``: stream-copy the file to a temporary file in the same
-   folder, writing the new block at the remembered offset; check that the
-   bytes there are still the old block; ``fsync``; check that the file was not
+2. ``apply_hunks`` (``apply_patch`` for one block): stream-copy the file to a
+   temporary file in the same folder, writing each new block at its
+   remembered offset (step 4d: several non-overlapping blocks in one pass);
+   check that the bytes there are still the old blocks; ``fsync``; check that the file was not
    changed meanwhile (size, modification time, inode); atomic ``os.replace``.
    On any error, timeout or cancel the temporary file is removed and the
    original stays untouched. The SHA-256 of the new file is computed while
@@ -173,18 +174,34 @@ def _write_all(fd: int, data: bytes) -> None:
 def apply_patch(src_fd: int, dir_fd: int, name: str, *, offset: int, old: bytes, new: bytes,
                 before: os.stat_result, deadline: float) -> tuple[int, str]:
     """Write the patched file atomically; returns (new size, SHA-256 of the new file)."""
+    return apply_hunks(src_fd, dir_fd, name, [(offset, old, new)], before=before, deadline=deadline)
+
+
+def apply_hunks(src_fd: int, dir_fd: int, name: str, hunks: list[tuple[int, bytes, bytes]], *,
+                before: os.stat_result, deadline: float) -> tuple[int, str]:
+    """Write all ``(offset, old, new)`` blocks in one atomic replacement.
+
+    ``hunks`` are sorted by offset and do not overlap; offsets are in the current file.
+    Returns (new size, SHA-256 of the new file). On any error nothing is written.
+    """
     temp_name = f".{name}.champion-{uuid.uuid4().hex[:8]}.tmp"
     temp = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
                    0o600, dir_fd=dir_fd)
     digest = hashlib.sha256()
     try:
-        if _copy(src_fd, temp, 0, offset, digest, deadline) != offset:
-            raise ToolError("the file changed since the scan (it is shorter); nothing was written")
-        if os.pread(src_fd, len(old), offset) != old:
-            raise ToolError("the file changed since the scan (the old text moved); nothing was written")
-        _write_all(temp, new)
-        digest.update(new)
-        rest = _copy(src_fd, temp, offset + len(old), None, digest, deadline)
+        position, written = 0, 0
+        for offset, old, new in hunks:
+            if offset < position:
+                raise ToolError("internal error: edit blocks overlap; nothing was written")
+            if _copy(src_fd, temp, position, offset - position, digest, deadline) != offset - position:
+                raise ToolError("the file changed since the scan (it is shorter); nothing was written")
+            if os.pread(src_fd, len(old), offset) != old:
+                raise ToolError("the file changed since the scan (the old text moved); nothing was written")
+            _write_all(temp, new)
+            digest.update(new)
+            written += offset - position + len(new)
+            position = offset + len(old)
+        written += _copy(src_fd, temp, position, None, digest, deadline)
         os.fsync(temp)
         os.fchmod(temp, stat.S_IMODE(before.st_mode))
         now = os.fstat(src_fd)
@@ -204,7 +221,41 @@ def apply_patch(src_fd: int, dir_fd: int, name: str, *, offset: int, old: bytes,
         except FileNotFoundError:
             pass
         raise
-    return offset + len(new) + rest, digest.hexdigest()
+    return written, digest.hexdigest()
+
+
+def line_range(fd: int, start: int, end: int, deadline: float) -> tuple[int, int, int]:
+    """Byte range ``[a, b)`` of lines ``start``..``end`` (1-based, inclusive; ``b`` after the
+    last newline). Streaming; returns (a, b, number of lines in the file if the range was
+    not found, else 0)."""
+    position, newlines, last_end = 0, 0, 0
+    a = 0 if start == 1 else None
+    while True:
+        chunk = os.pread(fd, CHUNK, position)
+        if not chunk:
+            break
+        count = chunk.count(b"\n")
+        if newlines + count >= start - 1 and (a is None or newlines + count >= end):
+            index = -1
+            while True:
+                index = chunk.find(b"\n", index + 1)
+                if index == -1:
+                    break
+                newlines += 1
+                if newlines == start - 1:
+                    a = position + index + 1
+                if newlines == end:
+                    return a, position + index + 1, 0
+        else:
+            newlines += count
+        if count:
+            last_end = position + chunk.rfind(b"\n") + 1
+        position += len(chunk)
+        _check_deadline(deadline, "line search")
+    total = newlines + (1 if position > last_end else 0)
+    if position > last_end and end == newlines + 1 and a is not None:
+        return a, position, 0  # last line without a newline
+    return -1, -1, total
 
 
 def file_sha256(fd: int, deadline: float) -> str:

@@ -77,7 +77,11 @@ def save_reverse_patch(context: ChampionContext, data: dict) -> str:
     file = folder / f"{uuid.uuid4().hex}.json"
     payload = dict(data)
     for key in ("old", "new"):
-        payload[key] = base64.b64encode(payload[key]).decode("ascii")
+        if key in payload:
+            payload[key] = base64.b64encode(payload[key]).decode("ascii")
+    if "hunks" in payload:  # step 4d: several blocks (forward offsets in the file before the edit)
+        payload["hunks"] = [{"offset": h["offset"], "old": base64.b64encode(h["old"]).decode("ascii"),
+                             "new": base64.b64encode(h["new"]).decode("ascii")} for h in payload["hunks"]]
     fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as stream:
         json.dump(payload, stream)
@@ -88,7 +92,13 @@ def load_reverse_patch(record_file: str) -> dict:
     with open(record_file, encoding="utf-8") as stream:
         data = json.load(stream)
     for key in ("old", "new"):
-        data[key] = base64.b64decode(data[key])
+        if key in data:
+            data[key] = base64.b64decode(data[key])
+    if "hunks" in data:
+        data["hunks"] = [{"offset": h["offset"], "old": base64.b64decode(h["old"]), "new": base64.b64decode(h["new"])}
+                         for h in data["hunks"]]
+    else:  # step 4a record: one block
+        data["hunks"] = [{"offset": data["offset"], "old": data["old"], "new": data["new"]}]
     return data
 
 
