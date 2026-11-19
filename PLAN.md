@@ -551,8 +551,8 @@ Expected: BLOCKED.
 - [x] `champion/specialists/linux.py`: `linux_coder` / Linux, the 11 tools in plan order, the 7 instructions (plus one line per structured tool and what the levels mean), 10 routing hints; registered by `load_builtin_specialists()`; `agents.linux_coder.enabled: true` kept in the example config.
 - [x] Orchestrator: a specialist is offered only if the current level enables at least one of its tools (`specialist_enabled`); at a custom level without read, `linux_coder_agent` is hidden like the file tools.
 - [x] `tests/test_linux_specialist.py` (6 tests): the verification above with the scripted model through the real orchestrator (read flow at 1.1, create blocked at 1.1 then created at 1.2 with the turn summary, delete with y and with n, edit + `/undo`, organize, the three security requests BLOCKED at 2.2, audit agents). 4 earlier tests updated for the built-in specialist (dummy contract tests switch Linux off). 194 pass.
-- [ ] Live check on the AI Gateway (Claude Haiku 4.5) with the verification script: not run yet; the agent's automatic run was stopped by the workspace safety review because it needs the user's token. To be run by the user with `champion chat --level 1.1`.
-- [ ] User verified
+- [x] Live check on the AI Gateway (model from `llm.model_id` in the user's config): run by the user with `champion chat --level 1.1` and the verification list in `docs/steps/04b-linux-specialist.md`; all checks passed (19 Nov 2026). The agent's own automatic run had been stopped by the workspace safety review because it needs the user's token.
+- [x] User verified (19 Nov 2026)
 
 Walkthrough: `docs/steps/04b-linux-specialist.md`.
 

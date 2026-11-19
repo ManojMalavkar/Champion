@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-3, 4a and 4b built (fast demo order: 4c, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes) and the first real specialist, Linux, using it. 194 automated tests passing; steps 0-3 checked live against the workspace AI Gateway (4b live check pending).
+**Status:** steps 0-3, 4a and 4b built (fast demo order: 4c, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes) and the first real specialist, Linux, using it. 194 automated tests passing; steps 0-3 and 4b checked live against the workspace AI Gateway.
 
 ---
 
@@ -146,7 +146,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 
 ### Step 4b - Linux specialist
 * **Built:** `linux_coder` (title Linux) with the 11 step 4a tools, instructions that put structured tools first and forbid retrying a block in another form, and 10 routing hints; registered as a built-in specialist, so the orchestrator offers `linux_coder_agent`. One orchestrator rule for every specialist: it is offered only if the access level enables at least one of its tools.
-* **Evidence:** 194 tests (6 new). The PLAN 4b verification runs as tests through the real orchestrator with the scripted model: `*.k` found in sub-folders, `*MAT_024` found by line, create blocked at 1.1 and done at 1.2 with `Changed files this turn: 1`, delete only after `y`, edit undone, 3 moves listed, and `find -exec`, `curl` and `~/.ssh/id_rsa` blocked at 2.2 with every Linux audit row `block`. Live check on the AI Gateway still to do.
+* **Evidence:** 194 tests (6 new). The PLAN 4b verification runs as tests through the real orchestrator with the scripted model: `*.k` found in sub-folders, `*MAT_024` found by line, create blocked at 1.1 and done at 1.2 with `Changed files this turn: 1`, delete only after `y`, edit undone, 3 moves listed, and `find -exec`, `curl` and `~/.ssh/id_rsa` blocked at 2.2 with every Linux audit row `block`. **Live check (19 Nov 2026):** the same verification list run by me in `champion chat` against the workspace AI Gateway; all checks passed (right specialist and structured tools chosen, blocks reported without workarounds, delete only after `y`, `/changes` and `/undo` matched the files on disk, `.env` never shown).
 * **Lessons:** adding a specialist touched no runtime or chat code, which confirms the plug-in interface. Hiding a specialist that could do nothing at the current level keeps the model's choice honest, the same idea as hiding single tools.
 
 ## 7. Metrics
@@ -192,7 +192,6 @@ This section grows with each step.
 
 * Checked live from Databricks; still to be checked on the Linux machine with real model files.
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
-* The Linux specialist is tested with the scripted model; its live check on the AI Gateway (how well the real model picks tools) is still to be done.
 * Shell commands open their paths after Champion's check (time-of-check race); `cp -r` into an existing folder can follow links already inside it; shell writes are listed but have no undo. A sandbox backend later removes the first two.
 * Next: existing shell scripts as checked tools (4c), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
 * After the demo: skills, MCP, model editing, code execution with review, `champion kb`, ANSA/META and PRIMER specialists, a sandboxed execution backend.
