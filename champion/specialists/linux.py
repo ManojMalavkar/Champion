@@ -27,7 +27,8 @@ DESCRIPTION = (
     "(also in sub-folders), search text inside files, show the largest folders and files, disk space, "
     "processes by memory or CPU and system information; edit text files (replace an exact block), "
     "create folders, rename, move or sort files into folders; run allowed Linux commands "
-    "(read commands at every level, writes at a write level, deletes only after the user approves). "
+    "(read commands where the user's access allows read, edits where it allows edit, deletes only "
+    "after the user approves). "
     "Give it the complete task: what to do, which folder or files, and what to return."
 )
 
@@ -58,15 +59,18 @@ Rules:
 7. Use file_edit for changes inside text files and files_organize for renaming or moving
    files; never use shell commands (cp, mv, touch) for these.
 
-Access levels:
-- At 1.1 and 2.1 (read only) the write tools are not offered and write commands are blocked.
-  If the task needs a change, say that the user can switch with /level 1.2 (or 2.2 for
-  folders outside the working folder). Do not attempt the change another way.
-- Paths outside the working folder need level 2.1 or 2.2.
+Access (the user's access list: the working folder, the user's folders and everything else,
+each none, read or edit; say "edit", not "write"):
+- The edit tools are offered only if some folder allows edit; edit commands are blocked where
+  the list does not allow edit, reads where it does not allow read.
+- A BLOCKED reason names the command the user can type (for example /access set 1 edit or
+  /access add PATH read). Report that exact command; do not invent others. Do not attempt
+  the change another way. Only the user changes access.
+- `~` means the user's home folder; it is expanded for you, also in commands.
 - Deletes (rm) always need the user's approval; Champion asks the user when you run the
   command. Ask for exactly what the task needs, nothing broader. If it is not approved,
   report that nothing was deleted.
-- Writes are listed for the user in /changes; file_edit and files_organize can be undone with
+- Edits are listed for the user in /changes; file_edit and files_organize can be undone with
   /undo. Mention this when you changed something."""
 
 ROUTING_HINTS = (

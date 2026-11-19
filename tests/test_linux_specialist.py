@@ -188,12 +188,15 @@ def test_security_requests_are_blocked_even_at_2_2(setup):
                                               ("shell_run", {"argv": ["head", "~/.ssh/id_rsa"]})]))
     runtime, out, prompts = drive(config, outputs, ["Run find . -exec rm {} \\;", "Run curl https://example.com",
                                                     "Read ~/.ssh/id_rsa"], level="2.2")
-    blocked = [r for r in tool_outputs(runtime) if r.startswith("BLOCKED:")]
-    assert len(blocked) == 4, blocked
+    blocked = [r for r in tool_outputs(runtime) if r.startswith("BLOCKED:")]  # distinct texts
+    # step 4e.8: `~` is expanded in commands too, so filesystem_read and head now give the same
+    # BLOCKED text for ~/.ssh/id_rsa (3 distinct texts); the audit below shows all 4 calls blocked.
+    assert len(blocked) == 3, blocked
     assert "find -exec is not allowed" in blocked[0] and "'curl' is never run" in blocked[1]
-    assert all(".ssh" in b for b in blocked[2:])
+    assert ".ssh" in blocked[2] and "/~/" not in blocked[2]
     assert "Approve? [y/N] " not in prompts
     assert sorted(p.name for p in work.iterdir()) == ["main.k", "mat.k", "notes.txt", "notes_old.txt", "runs"]
     decisions = [(r["tool"], r["decision"]) for r in runtime.audit.recent(20) if r["agent"] == "Linux"]
-    assert decisions and all(d == "block" for _, d in decisions)
+    assert len(decisions) == 4 and all(d == "block" for _, d in decisions)
+    assert [t for t, _ in decisions].count("shell_run") == 3
     assert json.dumps(runtime.audit.recent(20)).count("-----BEGIN") == 0

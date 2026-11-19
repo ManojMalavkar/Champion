@@ -90,6 +90,10 @@ def change(level: AccessLevel, working_directory: Path, argument: str,
         return level.with_folder(path, right), f"Folder {path} added with {right}"
     if command == "set":
         number_text, _, right = rest.strip().partition(" ")
+        if number_text.strip().lower() in PRESETS:
+            name = number_text.strip().lower()
+            raise AccessError(f"{name} is a preset, not a folder number; use /access preset {name} "
+                              f"(or /level {name}); folder numbers are shown by /access")
         number, right = _number(number_text), norm_right(right)
         folder = level.folder(number)
         path = check_folder(str(folder.path), working_directory, right)
@@ -158,9 +162,15 @@ def chat_access(context, argument: str, confirm: Confirm | None = None) -> str:
 
 
 def cli_access(config, action: str, values: list[str], access_file: Path | None,
-               confirm: Confirm | None = None) -> tuple[int, str]:
-    """``champion access list|add|remove|outside|working`` on the saved list; (exit code, text)."""
+               confirm: Confirm | None = None, audit=None) -> tuple[int, str]:
+    """``champion access list|add|remove|outside|working`` on the saved list; (exit code, text).
+
+    Every saved change is one audit row (tool ``champion access``, agent ``user``, the diff in
+    the reason), like ``/access`` in the chat (step 4e.8).
+    """
     import os
+
+    from champion.storage.audit import AuditLog
 
     work = Path(os.path.realpath(config.get("execution.working_directory")))
     try:
@@ -177,6 +187,10 @@ def cli_access(config, action: str, values: list[str], access_file: Path | None,
             values = [str(numbers[0])]
         argument = " ".join([action, *values])
         level, message = change(level, work, argument, confirm)
-        return 0, save_with_diff(level, access_file) + f"\n{message}."
+        saved = save_with_diff(level, access_file)
+        log = audit if audit is not None else AuditLog(config.get("storage.audit_db"))
+        log.record(tool="champion access", arguments={"command": argument}, access_level=level.name,
+                   decision="allow", reason=f"{message}; {saved}", agent="user")
+        return 0, saved + f"\n{message}."
     except (AccessError, OSError) as exc:
         return 2, f"Access not changed: {exc}"

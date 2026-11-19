@@ -4,7 +4,10 @@
 ``open_no_symlinks`` is how the tool then opens the path. Order of checks:
 
 1. Make the path absolute (relative paths start at the working folder) and
-   normalise ``..`` lexically.
+   normalise ``..`` lexically. A leading ``~`` is the user's home folder at
+   its real path (step 4e.8): on many sites ``/home`` is itself a link, and
+   the home folder is set by the system, not by the model. Every other link
+   is still refused.
 2. Blocked at every level: system folders, secret-looking names, and for
    writing operating-system folders (``sensitive.py``).
 3. No symbolic links anywhere in the path. A link could point from the
@@ -39,12 +42,24 @@ class PolicyDenied(Exception):
     """The access level or a fixed rule does not allow this. The message is safe to show."""
 
 
+def real_home() -> str:
+    """The user's home folder with links resolved (``/home/me`` -> ``/d/people/me``)."""
+    return os.path.realpath(os.path.expanduser("~"))
+
+
+def expand_home(text: str) -> str:
+    """``~`` and ``~/...`` -> the real home path; anything else unchanged."""
+    if text == "~" or text.startswith("~/"):
+        return real_home() + text[1:]
+    return text
+
+
 def normalise(path_text: str, working_directory: Path) -> Path:
     if not isinstance(path_text, str) or not path_text.strip():
         raise PolicyDenied("a non-empty path is required")
     if "\x00" in path_text:
         raise PolicyDenied("the path contains a NUL character")
-    path = Path(os.path.expanduser(path_text.strip()))
+    path = Path(os.path.expanduser(expand_home(path_text.strip())))
     if not path.is_absolute():
         path = working_directory / path
     return Path(os.path.normpath(path))
@@ -87,7 +102,8 @@ def check_path(level: AccessLevel, working_directory: Path, path_text: str, righ
         raise PolicyDenied(
             f"{path} is outside the working folder {working_directory} and the user's folders; "
             f"access {level.short()} gives everything else '{granted}', so {VERB[right]} is not allowed there "
-            f"(the user can add the folder with /access add PATH {right}, or choose level 2.1 / 2.2)")
+            f"(the user can add the folder with /access add PATH {right}, "
+            f"or allow it everywhere else with /access outside {right})")
     command = f"/access set {number} {right}" if number is not None else f"/access working {right}"
     raise PolicyDenied(f"{path} is {NOT_ENOUGH[granted]} ({where}, access {level.short()}); "
                        f"{VERB[right]} is not allowed there (the user can change it with {command})")
