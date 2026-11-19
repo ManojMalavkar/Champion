@@ -7,7 +7,8 @@ MCP tools (step 5) and agent tools on the agent branches.
 
 Fields:
 * ``right``: the access the tool needs: ``none`` (no files), ``read``,
-  ``write`` or ``execute`` (steps 7-8).
+  ``edit`` or ``execute`` (steps 7-8). ``write`` is accepted as the old
+  name of ``edit`` (step 4e).
 * ``approval``: ``never`` or ``always`` (the user must approve each call;
   used from step 6).
 * ``sends_data_out``: the tool sends data to a service other than the model
@@ -20,7 +21,7 @@ from dataclasses import dataclass
 
 from champion.policy.scope import PolicyDenied
 
-RIGHTS = ("none", "read", "write", "execute")
+RIGHTS = ("none", "read", "edit", "execute")
 APPROVALS = ("never", "always")
 
 
@@ -33,6 +34,8 @@ class ToolRule:
     sends_data_out: bool = False
 
     def __post_init__(self) -> None:
+        if self.right == "write":
+            object.__setattr__(self, "right", "edit")
         if self.right not in RIGHTS:
             raise ValueError(f"{self.name}: right must be one of {RIGHTS}")
         if self.approval not in APPROVALS:

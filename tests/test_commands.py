@@ -117,7 +117,7 @@ def test_read_command_at_read_only(env):
     assert "./a.k" in found and "./b.k" in found
     grep = run_shell(ctx(config), ["grep", "-n", "*MAT_024", "a.k"])
     assert "2:*MAT_024" in grep
-    with pytest.raises(PolicyDenied, match="does not allow write commands"):
+    with pytest.raises(PolicyDenied, match="does not allow edit commands"):
         run_shell(ctx(config), ["mkdir", "results"])
     with pytest.raises(PolicyDenied):
         run_shell(ctx(config), ["ls"], cwd="..")

@@ -43,6 +43,14 @@ policy:
     write: none                     # none, working or outside (not wider than read)
     extra_dirs: []                  # extra folders allowed for read (and write if allowed)
 
+access:                             # step 4e: per-folder access (read or edit per folder)
+  preset: null                      # starting preset 1.1, 1.2, 2.1, 2.2 or custom; null = policy.default_level
+  working: null                     # working folder: none, read or edit; null = from the preset
+  outside: null                     # everything else outside the folders: none, read or edit
+  folders: []                       # e.g. - {path: /data/lsdyna/models, right: read}
+                                    #      - {path: /scratch/me/runs, right: edit}
+  file: ~/.champion/access.yaml     # where /access save keeps your list; null = saving off
+
 execution:
   working_directory: .
   require_approval: true            # deletes (rm) ask every time; false = deletes are refused, never auto-run

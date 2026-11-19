@@ -14,6 +14,9 @@ Step 4a: after a turn that changed files the chat prints one line
 session's changes and ``/undo`` / ``/undo N`` takes them back. Deletes ask
 ``Approve? [y/N]`` in the chat (default no); in ``champion chat -q`` nobody
 can answer, so such commands are refused.
+
+Step 4e: ``/access`` shows and changes the per-folder access list (read or
+edit per folder, plus everything else); see ``access_commands.py``.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from typing import Callable, TextIO
 from agents.exceptions import MaxTurnsExceeded
 
 from champion import __version__
+from champion.access_commands import chat_access
 from champion.core.config import ACCESS_LEVELS
 from champion.core.hooks import ToolEvent
 from champion.core.runtime import ChampionRuntime
@@ -36,7 +40,8 @@ from champion.tools.guard import ToolError
 HELP = """Commands:
   /help          show this help
   /level         show the access level and the levels you can choose
-  /level NAME    change the access level (1.1, 1.2, 2.1, 2.2, custom)
+  /level NAME    change the access level (1.1, 1.2, 2.1, 2.2, custom); your folders are kept
+  /access        show the per-folder access list (/access help for add, set, remove, save ...)
   /audit         last tool calls of this chat (from the audit log)
   /changes       files changed in this session, newest first
   /undo          undo the last tool call's changes (file_edit, files_organize)
@@ -77,6 +82,7 @@ def level_command(runtime: ChampionRuntime, argument: str) -> str:
         lines = [f"Access level {context.level.describe()}", "Levels:"]
         lines += [f"  {level.describe()}" for level in BUILT_IN.values()]
         lines.append("  custom: from policy.custom in config.yaml")
+        lines.append("Folders with their own right: /access")
         return "\n".join(lines)
     if argument.lower() not in ACCESS_LEVELS:
         return f"Unknown level {argument}; choose one of {', '.join(ACCESS_LEVELS)}"
@@ -178,7 +184,15 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
           f"access level {runtime.context.level.describe()}, specialists: {specialists}. /help for commands.")
     for problem in getattr(runtime, "specialist_problems", []):
         write(f"Warning: {problem}")
+    for warning in runtime.context.access_warnings:
+        write(f"Warning: {warning}")
     runtime.context.approver = make_approver(read_line, write)
+
+    def confirm(prompt: str) -> bool:
+        try:
+            return read_line(prompt).strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            return False
     while True:
         try:
             line = (await asyncio.to_thread(read_line, "you> ")).strip()
@@ -194,6 +208,8 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
             write(HELP)
         elif command == "/level":
             write(level_command(runtime, argument.strip()))
+        elif command == "/access":
+            write(chat_access(runtime.context, argument, confirm))
         elif line == "/audit":
             write(audit_command(runtime))
         elif line == "/changes":

@@ -37,6 +37,8 @@ ACCESS_LEVELS = ("1.1", "1.2", "2.1", "2.2", "custom")
 # Custom level scopes, from narrowest to widest. "outside" means the working
 # directory and everything outside it (still subject to the blocked list).
 CUSTOM_SCOPES = ("none", "working", "outside")
+# Rights per folder (step 4e); "write" is accepted as the old name of "edit".
+ACCESS_RIGHTS = ("none", "read", "edit", "write")
 PLACEHOLDER_MODEL = "REPLACE_WITH_MODEL_ID"
 
 # openai: OpenAI API (Responses API). databricks: Unity AI Gateway of a
@@ -61,6 +63,13 @@ DEFAULTS: dict[str, Any] = {
     "policy": {
         "default_level": "1.1",
         "custom": {"read": "working", "write": "none", "extra_dirs": []},
+    },
+    "access": {  # step 4e: per-folder access on top of a preset
+        "preset": None,  # 1.1, 1.2, 2.1, 2.2 or custom; None = policy.default_level
+        "working": None,  # none | read | edit; None = from the preset
+        "outside": None,  # everything else: none | read | edit; None = from the preset
+        "folders": [],  # [{path: /data/models, right: read}, ...]
+        "file": "~/.champion/access.yaml",  # where /access save writes; null = saving off
     },
     "execution": {
         "working_directory": ".",
@@ -103,6 +112,7 @@ ROOT_PATH_KEYS = (
     "pydyna.database_path",
     "pydyna.keyword_reference_path",
     "pydyna.python_path",
+    "access.file",
 )
 
 
@@ -212,6 +222,15 @@ def _normalise(data: dict) -> None:
     for key in ("read", "write"):
         if isinstance(custom.get(key), str):
             custom[key] = custom[key].strip().lower()
+    access = data["access"]
+    preset = access.get("preset")
+    if isinstance(preset, (int, float)) and not isinstance(preset, bool):
+        preset = f"{preset:.1f}"
+    if isinstance(preset, str):
+        access["preset"] = preset.strip().lower()
+    for key in ("working", "outside"):
+        if isinstance(access.get(key), str):
+            access[key] = access[key].strip().lower()
 
 
 def _resolve(value: Any, base: Path) -> Any:
@@ -294,6 +313,23 @@ def validate(data: dict) -> list[str]:
     level = data["policy"]["default_level"]
     if level not in ACCESS_LEVELS:
         errors.append(f"policy.default_level must be one of {', '.join(ACCESS_LEVELS)} (got {level!r})")
+    access = data["access"]
+    if access.get("preset") is not None and access["preset"] not in ACCESS_LEVELS:
+        errors.append(f"access.preset must be one of {', '.join(ACCESS_LEVELS)} or null (got {access['preset']!r})")
+    for key in ("working", "outside"):
+        if access.get(key) is not None and access[key] not in ACCESS_RIGHTS:
+            errors.append(f"access.{key} must be one of {', '.join(ACCESS_RIGHTS)} or null (got {access[key]!r})")
+    folders = access.get("folders")
+    if not isinstance(folders, list):
+        errors.append("access.folders must be a list of {path: FOLDER, right: none|read|edit}")
+    else:
+        for i, entry in enumerate(folders, 1):
+            if (not isinstance(entry, dict) or not isinstance(entry.get("path"), str) or not entry["path"]
+                    or str(entry.get("right", "read")).strip().lower() not in ACCESS_RIGHTS):
+                errors.append(f"access.folders entry {i} must be {{path: FOLDER, right: none|read|edit}} "
+                              f"(got {entry!r})")
+    if access.get("file") is not None and not isinstance(access["file"], str):
+        errors.append("access.file must be a file path or null")
     custom = data["policy"]["custom"]
     read, write = custom.get("read"), custom.get("write")
     for key, value in (("read", read), ("write", write)):

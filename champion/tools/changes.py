@@ -144,8 +144,8 @@ def _undo_one(context: ChampionContext, change: dict) -> str:
                size_after=size, detail=f"undo of #{change['number']} (file_edit)")
         return f"#{change['number']}: {target} restored ({human_size(size)})"
     if kind == "move":
-        source = check_path(context.level, context.working_directory, undo["source"], "write")
-        destination = check_path(context.level, context.working_directory, undo["destination"], "write")
+        source = check_path(context.level, context.working_directory, undo["source"], "edit")
+        destination = check_path(context.level, context.working_directory, undo["destination"], "edit")
         if not os.path.lexists(destination):
             raise ToolError(f"#{change['number']}: {destination} no longer exists; cannot move it back")
         if os.path.lexists(source):
@@ -155,7 +155,7 @@ def _undo_one(context: ChampionContext, change: dict) -> str:
                detail=f"undo of #{change['number']} ({change['action']})")
         return f"#{change['number']}: {destination} moved back to {source}"
     if kind == "mkdir":
-        folder = check_path(context.level, context.working_directory, undo["path"], "write")
+        folder = check_path(context.level, context.working_directory, undo["path"], "edit")
         try:
             os.rmdir(folder)
         except FileNotFoundError:
@@ -172,9 +172,9 @@ def undo(context: ChampionContext, number: int | None = None) -> str:
     """Undo entry ``number``, or the last tool call's changes. Returns a report; raises on refusal."""
     if context.audit is None:
         raise ToolError("no change list in this session")
-    if not context.level.allows("write"):
+    if not context.level.allows("edit"):
         raise PolicyDenied(f"access level {context.level.name} ({context.level.label}) does not allow "
-                           "writing; switch to a write level (/level 1.2) to undo")
+                           "editing; switch with /level 1.2 (or give the folder edit access with /access) to undo")
     changes = context.audit.session_changes()
     if not changes:
         raise ToolError("no changes in this session to undo")

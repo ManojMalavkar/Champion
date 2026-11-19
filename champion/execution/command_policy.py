@@ -578,14 +578,16 @@ def check_command(argv: list[str], level: AccessLevel, work: Path, cwd: Path | N
 
     if command_class == "read" and not level.allows("read"):
         _deny(f"access level {level.name} ({level.label}) does not allow reading")
-    if command_class in ("write", "delete") and not level.allows("write"):
-        _deny(f"access level {level.name} ({level.label}) does not allow {command_class} commands "
-              f"('{command}' changes files); the user can switch with /level 1.2")
+    if command_class in ("write", "delete") and not level.allows("edit"):
+        kind = "edit" if command_class == "write" else "delete"
+        _deny(f"access level {level.name} ({level.label}) does not allow {kind} commands "
+              f"('{command}' changes files); the user can switch with /level 1.2 or give a folder "
+              f"edit access with /access")
     check = CommandCheck(command, final, rule, command_class, cwd)
     check.reads = [check_path(level, work, _absolute(p, cwd), "read") for p in reads]
-    check.writes = [check_path(level, work, _absolute(p, cwd), "write") for p in writes]
+    check.writes = [check_path(level, work, _absolute(p, cwd), "edit") for p in writes]
     for raw in deletes:
-        path = check_path(level, work, _absolute(raw, cwd), "write")
+        path = check_path(level, work, _absolute(raw, cwd), "edit")
         if path == work or path in work.parents or path == cwd or path in cwd.parents:
             _deny(f"{path} is the working folder, the current folder or one of their parents; never deleted")
         check.deletes.append(path)

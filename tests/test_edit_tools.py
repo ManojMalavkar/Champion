@@ -125,7 +125,7 @@ def test_edit_refusals_leave_the_file_unchanged(setup, monkeypatch):
     (work / "data.bin").write_bytes(b"\x00\x01abc")
     with pytest.raises(ToolError, match="binary"):
         edit_file(ctx(config), "data.bin", "abc", "x")
-    with pytest.raises(PolicyDenied, match="does not allow writing"):
+    with pytest.raises(PolicyDenied, match="does not allow editing"):
         edit_file(ctx(config, "1.1"), "main.k", "*END", "*END\n")
     (outside / "o.k").write_text("*END\n")
     with pytest.raises(PolicyDenied, match="outside the working folder"):
@@ -157,7 +157,7 @@ def test_edit_keeps_permissions_and_is_refused_at_2_1(setup):
     os.chmod(work / "main.k", 0o640)
     edit_file(ctx(config), "main.k", "*END", "*END\n$ kept")
     assert oct((work / "main.k").stat().st_mode)[-3:] == "640"
-    with pytest.raises(PolicyDenied, match="does not allow writing"):
+    with pytest.raises(PolicyDenied, match="does not allow editing"):
         edit_file(ctx(config, "2.1"), "main.k", "$ kept", "$ no")
 
 
@@ -285,7 +285,7 @@ def test_undo_single_entry_and_level_rules(setup):
     with pytest.raises(ToolError, match="there is no change #9"):
         undo(context, 9)
     read_only = ctx(config, "1.1", audit=audit)
-    with pytest.raises(PolicyDenied, match="does not allow writing"):
+    with pytest.raises(PolicyDenied, match="does not allow editing"):
         undo(read_only)
     assert "moved back" in undo(context, 2)
     assert "restored" in undo(context, 1)

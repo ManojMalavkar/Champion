@@ -30,7 +30,32 @@ def build_parser() -> argparse.ArgumentParser:
                       help="access level for this chat (default: policy.default_level)")
     chat.add_argument("--plain", action="store_true",
                       help="print answers as raw text (default: Markdown in a terminal)")
+    chat.add_argument("--read", action="append", default=[], metavar="FOLDER",
+                      help="also allow reading FOLDER in this chat (repeatable)")
+    chat.add_argument("--edit", action="append", default=[], metavar="FOLDER",
+                      help="also allow editing FOLDER in this chat (repeatable)")
+    chat.add_argument("--outside", choices=("none", "read", "edit"),
+                      help="right for everything else outside the working folder and the listed folders")
+
+    access = commands.add_parser("access", help="show or change the saved per-folder access list")
+    access.add_argument("action", choices=("list", "add", "remove", "outside", "working"))
+    access.add_argument("values", nargs="*", help="add PATH read|edit|none; remove PATH|N; "
+                                                  "outside none|read|edit; working read|edit")
     return parser
+
+
+def access_file(config):
+    from pathlib import Path
+
+    value = config.get("access.file")
+    return Path(value) if value else None
+
+
+def ask_yes(prompt: str) -> bool:
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,12 +78,25 @@ def main(argv: list[str] | None = None) -> int:
         render(results)
         return 1 if any(r.status == FAIL for r in results) else 0
 
+    if args.command == "access":
+        from champion.access_commands import cli_access
+
+        code, text = cli_access(config, args.action, args.values, access_file(config),
+                                ask_yes if sys.stdin.isatty() else None)
+        print(text, file=sys.stderr if code else sys.stdout)
+        return code
+
     if args.command == "chat":
         from champion.chat import run_chat
         from champion.core.runtime import ChampionRuntime, RuntimeSetupError
+        from champion.policy.access import AccessError
 
         try:
-            runtime = ChampionRuntime(config, level=args.level)
+            runtime = ChampionRuntime(config, level=args.level, access_file=access_file(config),
+                                      read=tuple(args.read), edit=tuple(args.edit), outside=args.outside)
+        except AccessError as exc:
+            print(f"Access error: {exc}", file=sys.stderr)
+            return 2
         except RuntimeSetupError as exc:
             print(f"Cannot start: {exc}", file=sys.stderr)
             return 2

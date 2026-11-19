@@ -130,7 +130,7 @@ def test_wildcards_are_expanded_by_champion(env):
 
 def test_write_and_delete_classes(env):
     _, work, outside = env
-    denied(env, ["mkdir", "results"], "does not allow write commands")
+    denied(env, ["mkdir", "results"], "does not allow edit commands")
     made = check(env, ["mkdir", "-p", "results/run1"], level="1.2")
     assert made.command_class == "write" and made.writes == [work / "results" / "run1"]
     assert not made.needs_approval

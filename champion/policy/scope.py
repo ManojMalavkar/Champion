@@ -1,4 +1,4 @@
-"""Path checks: is this path allowed for reading or writing at this level?
+"""Path checks: is this path allowed for reading or editing with this access?
 
 ``check_path`` is called by every file tool *before* it touches the disk, and
 ``open_no_symlinks`` is how the tool then opens the path. Order of checks:
@@ -9,8 +9,9 @@
    writing operating-system folders (``sensitive.py``).
 3. No symbolic links anywhere in the path. A link could point from the
    working folder to anywhere, so links are refused, not followed.
-4. The level must allow the right (read / write) and the place: inside the
-   working folder (or a custom extra folder) or, for levels 2.x, outside.
+4. The access list must give the right (read / edit) for this place: the
+   most specific entry (working folder, one of the user's folders, or
+   everything else) wins (step 4e, ``access.py``).
 
 ``open_no_symlinks`` opens the path one component at a time with
 ``O_NOFOLLOW``, so a link created between the check and the open is still
@@ -26,10 +27,12 @@ import os
 import stat
 from pathlib import Path
 
-from champion.policy.levels import AccessLevel
+from champion.policy.access import EVERYTHING_ELSE, RANK, AccessLevel, norm_right
+from champion.policy.access import is_within as is_within  # re-exported (step 2 name)
 from champion.policy.sensitive import sensitive_reason
 
-VERB = {"read": "reading", "write": "writing"}
+VERB = {"read": "reading", "edit": "editing"}
+NOT_ENOUGH = {"none": "blocked", "read": "read only"}
 
 
 class PolicyDenied(Exception):
@@ -61,28 +64,33 @@ def find_symlink(path: Path) -> Path | None:
     return None
 
 
-def is_within(path: Path, folder: Path) -> bool:
-    return path == folder or folder in path.parents
 
 
 def check_path(level: AccessLevel, working_directory: Path, path_text: str, right: str) -> Path:
     """Return the normalised path if allowed, else raise ``PolicyDenied``."""
+    right = norm_right(right)  # "write" is the old name of "edit"
+    if right == "none":
+        raise ValueError("check_path needs the right read or edit")
     path = normalise(path_text, working_directory)
-    reason = sensitive_reason(path, write=(right == "write"))
+    reason = sensitive_reason(path, write=(right == "edit"))
     if reason:
         raise PolicyDenied(f"{path}: {reason}")
     link = find_symlink(path)
     if link is not None:
         raise PolicyDenied(f"{path}: symbolic links are not followed ({link} is a link); use the real path")
-    scope = getattr(level, right)
-    if scope == "none":
+    if not level.allows(right):
         raise PolicyDenied(f"access level {level.name} ({level.label}) does not allow {VERB[right]} files")
-    areas = (working_directory, *level.extra_dirs)
-    if scope != "outside" and not any(is_within(path, area) for area in areas):
+    granted, where, number = level.entry_for(path, working_directory)
+    if RANK[granted] >= RANK[right]:
+        return path
+    if where == EVERYTHING_ELSE:
         raise PolicyDenied(
-            f"{path} is outside the working folder {working_directory}; access level {level.name} "
-            f"allows {VERB[right]} only inside it (levels 2.1 and 2.2 also allow outside)")
-    return path
+            f"{path} is outside the working folder {working_directory} and the user's folders; "
+            f"access {level.short()} gives everything else '{granted}', so {VERB[right]} is not allowed there "
+            f"(the user can add the folder with /access add PATH {right}, or choose level 2.1 / 2.2)")
+    command = f"/access set {number} {right}" if number is not None else f"/access working {right}"
+    raise PolicyDenied(f"{path} is {NOT_ENOUGH[granted]} ({where}, access {level.short()}); "
+                       f"{VERB[right]} is not allowed there (the user can change it with {command})")
 
 
 def open_no_symlinks(path: Path, flags: int = os.O_RDONLY) -> int:

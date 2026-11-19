@@ -2,7 +2,7 @@
 
 Multi-agent CAE assistant (PyDyna / LS-DYNA and Linux) built on the OpenAI Agents SDK. Rebuild of mChampion, developed step by step; see `PLAN.md` for the steps and `docs/steps/` for a walkthrough of each one.
 
-Current state: step 4b (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface, and the step 4a Linux tool layer: find, grep, disk and process tools, streaming `file_edit` and `files_organize` with `/changes` and `/undo`, and safe `shell_run` / `shell_pipeline`, used by the first specialist, Linux (`linux_coder_agent`, switch off with `agents.linux_coder.enabled: false`).
+Current state: step 4e (configuration, `champion doctor`, `champion chat` with `session_info` and read-only file tools, access levels and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface, and the step 4a Linux tool layer: find, grep, disk and process tools, streaming `file_edit` and `files_organize` with `/changes` and `/undo`, and safe `shell_run` / `shell_pipeline`, used by the first specialist, Linux (`linux_coder_agent`, switch off with `agents.linux_coder.enabled: false`), and per-folder access: read or edit per folder, chosen by the user with `/access`).
 
 ## Install
 
@@ -42,7 +42,7 @@ pytest
 ## Chat
 
 ```bash
-champion chat                                   # interactive: /help, /level, /audit, /changes, /undo, /new, /usage, /exit
+champion chat                                   # interactive: /help, /level, /access, /audit, /changes, /undo, /new, /usage, /exit
 champion chat -q "What time is it and which folder am I in?"
 champion chat --plain                           # raw text answers (no Markdown rendering)
 ```
@@ -51,21 +51,28 @@ In a terminal, answers are rendered as Markdown (bold, lists, code, tables). Whe
 
 Tool calls are printed as `-> tool(arguments)` and `<- tool: N chars` (or the BLOCKED / ERROR reason). Only the last `orchestration.history_turns` turns (10) are sent with each question; `/new` starts a fresh conversation.
 
-## Access levels
+## Access
 
-| Level | Read | Write |
+Access is a list: the working folder, any number of folders, and everything else, each with `none`, `read` or `edit` (read and change; deletes still ask every time). The longest matching folder wins. The old levels are presets of this list:
+
+| Preset | Working folder | Everything else |
 | --- | --- | --- |
-| 1.1 (default) | working folder | nothing |
-| 1.2 | working folder | working folder |
-| 2.1 | working folder and outside | nothing |
-| 2.2 | working folder and outside | working folder and outside |
-| custom | `policy.custom.read` (+ `extra_dirs`) | `policy.custom.write` |
+| 1.1 (default) | read | none |
+| 1.2 | edit | none |
+| 2.1 | read | read |
+| 2.2 | edit | edit |
+| custom | from `policy.custom` (`extra_dirs` become folders) | |
 
-Choose with `champion chat --level 2.1` or `/level 2.1` in the chat (`/level` alone shows the current one). Always blocked: `/proc`, `/sys`, `/dev`, `/root`, protected system files, secret-looking names (`.ssh`, `.env`, `*.pem`, tokens, passwords), private keys, symbolic links; OS folders such as `/etc` and `/usr` are never written. Every tool call is recorded in the audit log (`storage.audit_db`); `/audit` shows the calls of the current chat.
+```bash
+champion chat --level 1.1 --read /data/models --edit /scratch/runs --outside none   # this chat only
+champion access list                      # saved list; also add PATH read|edit|none, remove PATH|N, outside, working
+```
+
+In the chat: `/level 2.1` applies a preset and keeps your folders; `/access` shows the list; `/access add PATH read|edit|none`, `/access set N RIGHT`, `/access remove N`, `/access outside RIGHT`, `/access working read|edit`, `/access preset NAME`. Changes are for the session until `/access save`, which writes `~/.champion/access.yaml` (mode 600; `access.file` in the config, `null` = off). Edit access to `/`, the home folder, a parent of the working folder or everything else asks `Continue? [y/N]` first. Folders can also be listed in the `access` section of `config.yaml`. Order at start: preset, `config.yaml`, saved file, command line. Only the user changes access; the agents have no tool for it. Always blocked: `/proc`, `/sys`, `/dev`, `/root`, protected system files, secret-looking names (`.ssh`, `.env`, `*.pem`, tokens, passwords), private keys, symbolic links; OS folders such as `/etc` and `/usr` are never edited. Every tool call is recorded in the audit log (`storage.audit_db`); `/audit` shows the calls of the current chat.
 
 ## Safety notes
 
-* The access levels (1.1, 1.2, 2.1, 2.2, Custom) are enforced in every tool (step 2).
-* Commands (step 4a) are never run through a shell: an allow-list of commands and exact options, every path checked like the file tools, a clean environment without tokens, time, CPU, memory and file-size limits. Writes at a write level run without a prompt and are listed in `/changes` (`file_edit` and `files_organize` can be undone with `/undo`); deletes ask `Approve? [y/N]` every time and are refused in `champion chat -q`. `execution.max_command_file_bytes` (default 8 GiB) limits files written by commands.
+* The access list (presets 1.1-2.2 and custom, plus per-folder rights from step 4e) is enforced in every tool; BLOCKED messages name the entry and the `/access` command that would allow it. Every access change is in the audit log.
+* Commands (step 4a) are never run through a shell: an allow-list of commands and exact options, every path checked like the file tools, a clean environment without tokens, time, CPU, memory and file-size limits. Edits where the list allows edit run without a prompt and are listed in `/changes` (`file_edit` and `files_organize` can be undone with `/undo`); deletes ask `Approve? [y/N]` every time and are refused in `champion chat -q`. `execution.max_command_file_bytes` (default 8 GiB) limits files written by commands.
 * SDK tracing is off by default; turning it on sends traces to OpenAI (refused with the Databricks provider).
 * Content read by the agents is sent to the configured model: through the workspace AI Gateway (Databricks provider) or to OpenAI's API (OpenAI provider).

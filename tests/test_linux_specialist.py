@@ -136,7 +136,7 @@ def test_create_blocked_at_1_1_then_runs_at_1_2_and_delete_asks(setup):
     runtime, out, prompts = drive(config, outputs, [
         "Create a folder named results.", "/level 1.2", "Create a folder named results.", "/changes",
         "Delete notes_old.txt", "y", "/changes"])
-    assert "[Linux] <- shell_run: BLOCKED: access level 1.1" in out and "does not allow write commands" in out
+    assert "[Linux] <- shell_run: BLOCKED: access level 1.1" in out and "does not allow edit commands" in out
     assert (work / "results").is_dir() and not (work / "notes_old.txt").exists()
     assert out.count("Changed files this turn: 1 (see /changes)") == 2
     assert prompts.count("Approve? [y/N] ") == 1

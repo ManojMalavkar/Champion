@@ -40,8 +40,8 @@ from champion.tools.text_patch import (MAX_NEW, MAX_OLD, apply_patch, encode, fi
 MAX_MOVES = 200
 MAX_FOLDERS = 50
 
-register(ToolRule("file_edit", "write", "Replace one exact block of text in a text file (streaming, undoable)"))
-register(ToolRule("files_organize", "write", "Create folders and move or rename files as one checked plan"))
+register(ToolRule("file_edit", "edit", "Replace one exact block of text in a text file (streaming, undoable)"))
+register(ToolRule("files_organize", "edit", "Create folders and move or rename files as one checked plan"))
 
 
 class Move(BaseModel):
@@ -50,9 +50,9 @@ class Move(BaseModel):
 
 
 def require_write(context: ChampionContext) -> None:
-    if not context.level.allows("write"):
-        raise PolicyDenied(f"access level {context.level.name} ({context.level.label}) does not allow writing "
-                           "files; the user can switch to a write level with /level 1.2")
+    if not context.level.allows("edit"):
+        raise PolicyDenied(f"access level {context.level.name} ({context.level.label}) does not allow editing "
+                           "files; the user can switch with /level 1.2 or give a folder edit access with /access")
 
 
 def _open_target(path: Path) -> tuple[int, int]:
@@ -102,7 +102,7 @@ def _full_copy(context: ChampionContext, fd: int, deadline: float, name: str) ->
 
 def edit_file(context: ChampionContext, path: str, old_text: str, new_text: str, agent: str = "") -> str:
     require_write(context)
-    target = check_path(context.level, context.working_directory, path, "write")
+    target = check_path(context.level, context.working_directory, path, "edit")
     if not isinstance(old_text, str) or old_text == "":
         raise ToolError("old_text must not be empty: give the exact lines to replace")
     if old_text == new_text:
@@ -166,7 +166,7 @@ def edit_file(context: ChampionContext, path: str, old_text: str, new_text: str,
 def undo_patch(context: ChampionContext, record_file: str) -> int:
     """Apply a saved reverse patch; refuses if the file changed since the edit. Returns the new size."""
     data = load_reverse_patch(record_file)
-    target = check_path(context.level, context.working_directory, data["path"], "write")
+    target = check_path(context.level, context.working_directory, data["path"], "edit")
     seconds = context.config.get("pydyna.model_timeout_seconds")
     dir_fd, fd = _open_target(target)
     try:
@@ -207,7 +207,7 @@ def organize_files(context: ChampionContext, moves: list, create_folders: list[s
 
     def checked(text: str, what: str) -> Path | None:
         try:
-            return check_path(level, work, text, "write")
+            return check_path(level, work, text, "edit")
         except PolicyDenied as exc:
             problems.append(f"{what} {text!r}: BLOCKED - {exc}")
             return None
@@ -245,7 +245,7 @@ def organize_files(context: ChampionContext, moves: list, create_folders: list[s
         if move.destination.endswith("/") or _is_folder(destination) or destination in planned:
             destination = destination / source.name
             try:
-                destination = check_path(level, work, str(destination), "write")
+                destination = check_path(level, work, str(destination), "edit")
             except PolicyDenied as exc:
                 problems.append(f"destination {destination}: BLOCKED - {exc}")
                 continue
@@ -311,7 +311,7 @@ def organize_files(context: ChampionContext, moves: list, create_folders: list[s
 
 # ------------------------------------------------------------------ tools
 
-@function_tool(is_enabled=requires("write"))
+@function_tool(is_enabled=requires("edit"))
 async def file_edit(ctx: RunContextWrapper[ChampionContext], path: str, old_text: str, new_text: str) -> str:
     """Replace one exact block of text in a text file (any size, LS-DYNA models included).
     old_text must appear exactly once in the file, with the same spaces and line breaks;
@@ -328,7 +328,7 @@ async def file_edit(ctx: RunContextWrapper[ChampionContext], path: str, old_text
                              lambda: edit_file(ctx.context, path, old_text, new_text, agent_name(ctx)))
 
 
-@function_tool(is_enabled=requires("write"))
+@function_tool(is_enabled=requires("edit"))
 async def files_organize(ctx: RunContextWrapper[ChampionContext], moves: list[Move],
                          create_folders: list[str] | None = None) -> str:
     """Create folders and move or rename files as one checked plan. The whole plan is

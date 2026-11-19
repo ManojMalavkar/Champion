@@ -63,7 +63,7 @@ async def run_guarded_async(ctx: RunContextWrapper[ChampionContext], tool: str, 
     decision, reason = "allow", ""
     try:
         rule = rule_for(tool)
-        if rule.right in ("read", "write") and not context.level.allows(rule.right):
+        if rule.right in ("read", "edit") and not context.level.allows(rule.right):
             raise PolicyDenied(f"access level {context.level.name} ({context.level.label}) "
                                f"does not allow {rule.right} tools")
         text = str(await action())

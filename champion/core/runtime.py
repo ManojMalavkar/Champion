@@ -25,6 +25,7 @@ from __future__ import annotations
 import functools
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from agents import (Agent, OpenAIChatCompletionsModel, OpenAIResponsesModel, RunConfig, Runner,
@@ -113,13 +114,16 @@ class ChampionRuntime:
     def __init__(self, config: Config, *, model: Model | None = None,
                  env: Mapping[str, str] | None = None,
                  agent_factory: Callable[[Model], Agent] | None = None,
-                 level: str | None = None, audit: AuditLog | None = None) -> None:
+                 level: str | None = None, audit: AuditLog | None = None,
+                 access_file: Path | None = None, read: tuple[str, ...] = (), edit: tuple[str, ...] = (),
+                 outside: str | None = None) -> None:
         from champion.agents.orchestrator import build_orchestrator
         from champion.specialists.registry import select_specialists
 
         self.config = config
         self.audit = audit if audit is not None else AuditLog(config.get("storage.audit_db"))
-        self.context = ChampionContext.from_config(config, level=level, audit=self.audit)
+        self.context = ChampionContext.from_config(config, level=level, audit=self.audit, access_file=access_file,
+                                                   read=tuple(read), edit=tuple(edit), outside=outside)
         self.model = model if model is not None else build_model(config, build_client(config, env))
         if agent_factory is not None:
             self.specialists, self.specialist_problems = [], []

@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-3, 4a and 4b built (fast demo order: 4c, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes) and the first real specialist, Linux, using it. 194 automated tests passing; steps 0-3 and 4b checked live against the workspace AI Gateway.
+**Status:** steps 0-3, 4a, 4b and 4e built (fast demo order: 4c, 4d, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 209 automated tests (208 run on Databricks serverless; 1 needs the full local install); steps 0-3 and 4b checked live against the workspace AI Gateway, 4e live check pending on the Linux machine.
 
 ---
 
@@ -51,7 +51,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | Multi-agent pattern | Agents as tools | Orchestrator keeps control and context; each specialist has a narrow tool set; easy to test | Handoffs (control moves to the specialist, harder to keep policies central) |
 | Model access | Databricks Unity AI Gateway (`system.ai` models, Claude Haiku 4.5 by default), one OpenAI-compatible client | Company-governed access (permissions, usage tracking) with no provider key; one `base_url` setting; `provider: openai` still works | Direct OpenAI key; several gateway backends (as in mChampion) |
 | Build order | Fast demo order, one framework | Working demo for the interview first; safety core is plain Python, so only agent wiring would change for another framework | LangGraph/CrewAI versions (more time, little demo value) |
-| Access control | Five levels chosen by the user (1.1, 1.2, 2.1, 2.2, Custom) | Clear to explain: where (working folder or outside) x what (read or read/write) | mChampion's six behaviour-based levels |
+| Access control | An access list chosen by the user: working folder, any number of folders, everything else, each `none`, `read` or `edit`; the five levels (1.1, 1.2, 2.1, 2.2, Custom) are presets of it (step 4e) | Real work spans folders (models read-only, runs editable); presets keep it simple to explain; the longest match makes nesting predictable | Fixed levels only (step 2); mChampion's six behaviour-based levels |
 | Large models | Keyword-offset index, ranged reads, patch edits | Constant memory on 1-8 GB decks; the model only ever sees small blocks | Loading the deck with PyDyna `Deck` (too slow and memory-hungry) |
 | Code execution | Host run after reviewer + static check + approval + runtime guard | No container needed in phase 1; layered defence | Bubblewrap sandbox (planned as a later backend) |
 | Extensibility | Specialist plug-ins with a declared spec | ANSA/META and PRIMER added without touching orchestrator, policy or UI | Hard-coded routing |
@@ -65,7 +65,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | Model governance | Only the workspace Unity AI Gateway (`/ai-gateway/...`); legacy `/serving-endpoints` URLs refused by config validation | Done (step 2a), tested |
 | Tracing | SDK traces off by default (would send content to OpenAI); must stay off with the Databricks provider | Done (steps 1, 2a), tested |
 | Turn limits | `max_turns` stops a looping agent; history limited to the last 10 turns | Done (step 1), tested |
-| Access levels | Every file tool checks the level in the run context (the model cannot change it); only the user changes it (`--level`, `/level`) | Done (step 2), tested for all levels |
+| Access list | Every tool checks the per-folder list in the run context (the model cannot see or change it); only the user changes it (`--level`, `--read`, `--edit`, `--outside`, `/level`, `/access`, `champion access`); added folders are checked (exist, no link, not system or secret); wide edit asks first; each change is an audit row; saved file mode 600, ignored if others can write it | Done (steps 2, 4e), tested for all presets and nesting |
 | Fixed blocks | `/proc`, `/sys`, `/dev`, `/root`, protected system files, secret-looking names (`.ssh`, `.env`, `*.pem`, tokens ...) at every level; OS folders never written | Done (step 2), tested |
 | Symbolic links | Refused anywhere in a path; files opened folder by folder with `O_NOFOLLOW`, so a link swapped in after the check is still refused | Done (step 2), tested |
 | Content checks | Private-key blocks refused in any file; `.key` read only if it is an LS-DYNA keyword file; binary files refused; output capped | Done (step 2), tested |
@@ -74,7 +74,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | Tool ownership | Write and execute tools exist only on the specialist that needs them; a specialist is offered only if the level enables one of its tools | Done (steps 3, 4b), tested |
 | Shell command rules | Argument lists only (`shell=False`); allow-list of commands and exact options; never-list with reasons (shells, interpreters, network, `sudo`, `xargs`, `awk`, HPC scheduler); wildcards expanded by Champion; every path checked as read, write or delete; options that run programs, follow links or read contents recursively refused | Done (step 4a), tested |
 | Safe executor | Programs only from `/usr/bin` and `/bin`; environment of 5 variables (no tokens); own process group killed at the time limit; CPU, memory and file-size limits; output capped; private keys and tokens hidden | Done (step 4a), tested |
-| Writes and deletes | Writes at a write level run without a prompt and go into the session change list (`/changes`, `/undo`); deletes ask y/N every time, approval bound to a fingerprint re-checked before the start; `-q` refuses deletes | Done (step 4a), tested |
+| Edits and deletes | Edits where the list allows edit run without a prompt and go into the session change list (`/changes`, `/undo`); deletes ask y/N every time, approval bound to a fingerprint re-checked before the start; `-q` refuses deletes | Done (step 4a), tested |
 | Large-file limits | 100 MiB threshold for large-file mode, hard size limit | Step 7 (reads of 100 MiB or more already refused) |
 | MCP rules | Every MCP tool has a policy entry; outbound actions (mail) always approved; web and mail content treated as data | After the demo (L2) |
 | Model edits | Streaming exact-block patch with diff and undo built (step 4a, `file_edit`); LS-DYNA-aware editing on top | After the demo (L3) |
@@ -149,6 +149,15 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Evidence:** 194 tests (6 new). The PLAN 4b verification runs as tests through the real orchestrator with the scripted model: `*.k` found in sub-folders, `*MAT_024` found by line, create blocked at 1.1 and done at 1.2 with `Changed files this turn: 1`, delete only after `y`, edit undone, 3 moves listed, and `find -exec`, `curl` and `~/.ssh/id_rsa` blocked at 2.2 with every Linux audit row `block`. **Live check (19 Nov 2026):** the same verification list run by me in `champion chat` against the workspace AI Gateway; all checks passed (right specialist and structured tools chosen, blocks reported without workarounds, delete only after `y`, `/changes` and `/undo` matched the files on disk, `.env` never shown).
 * **Lessons:** adding a specialist touched no runtime or chat code, which confirms the plug-in interface. Hiding a specialist that could do nothing at the current level keeps the model's choice honest, the same idea as hiding single tools.
 
+### Step 4e - Per-folder access
+* **Built:**
+  * `policy/access.py`: one access list (working folder, folders, everything else; `none`/`read`/`edit`), longest match wins, the old levels as presets, `policy.custom` converted, folder checks, wide-folder detection, load and atomic save of `~/.champion/access.yaml` (mode 600).
+  * Every check (`scope.py`, guard, edit tools, `/undo`, command policy) uses the list; BLOCKED messages name the entry and the exact command that would allow it (`/access set 1 edit`).
+  * `/access` in the chat (add, set, remove, outside, working, preset, save with diff), `champion chat --read/--edit/--outside`, `champion access ...`, and an `access` section in `config.yaml`. `/level` keeps the folders. Changes are for the session until `/access save`.
+  * User-facing word "edit" instead of "write" everywhere (`write` still accepted in old configs).
+* **Evidence:** 209 tests (15 new in `tests/test_folder_access.py`); 208 pass on Databricks serverless, the doctor exit-code test needs `textual` and is in the pending local checks. Presets give exactly the old results; 50 folders; a link from a read folder into an edit folder refused; `cp` into a read folder refused, into an edit folder listed in `/changes`; `rm` still asks; 7 audit rows for 7 accepted changes; a saved file others can write is ignored. A scripted chat of the PLAN 4e.7 check passed (read, BLOCKED edit with hint, `mkdir` in the edit folder, other folder BLOCKED, save, restart shows the same list). Live check on the Linux machine pending (list in `PLAN.md`).
+* **Lessons:** making the old levels presets of the new model kept every earlier test meaningful; only wording changed. The access list must be user-only: no tool, its file under a blocked folder, and every change audited, otherwise a prompt injection could widen access.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -160,6 +169,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 3 | 135 | `specialists/base.py`, `specialists/registry.py`, `agents/orchestrator.py`, `SpecialistHooks`, `run_guarded_async` | Step 3 |
 | 4a | 188 | `tools/walk.py`, `search.py`, `system.py`, `text_patch.py`, `edit.py`, `changes.py`, `shell.py`; `execution/command_policy.py`, `approval.py`, `commands.py` | Step 4a |
 | 4b | 194 | `specialists/linux.py`; `specialist_enabled` in `agents/orchestrator.py` | Step 4b |
+| 4e | 209 | `policy/access.py`, `access_commands.py`; `access` section in `core/config.py` | Step 4e |
 
 ## 8. Demo script (current state)
 
@@ -173,6 +183,7 @@ About 5 minutes. Run from the project folder with the virtual environment active
    * "What files are here?" - `filesystem_list`; `.env` is hidden.
    * "Show the start of <model>.k" - `filesystem_read`.
    * "Read /etc/hostname" - `BLOCKED ... outside the working folder`; the agent explains and suggests `/level`. Type `/level 2.1` and ask again - allowed.
+   * `/access add <models folder> read`, `/access add <runs folder> edit`, `/access outside none`, `/access` - the table. Ask to edit a model in the models folder: `BLOCKED ... read only (folder 1) ... /access set 1 edit`. Create a folder in the runs folder: works and is listed in `/changes`. `/access add ~ edit` asks `Continue? [y/N]`.
    * "Read /proc/self/environ" or ".env" - blocked even at 2.2.
    * `/audit` - every call with its decision and reason.
    * "My name is Manoj", then "What is my name?" - session memory; `/new` and ask again - forgotten.
@@ -183,7 +194,8 @@ This section grows with each step.
 ## 9. Testing approach
 
 * **Fake model:** `tests/fake_model.py` implements the SDK model interface with scripted replies, so agent behaviour (tool calls, history, limits, errors) is tested without network or cost.
-* **Security tests:** the key never appears in output or results; invalid configuration is rejected; API errors are shown without their message text; every access level is tested against inside/outside and read/write; secret file content never reaches the model.
+* **Security tests:** the key never appears in output or results; invalid configuration is rejected; API errors are shown without their message text; every preset is tested against inside/outside and read/edit, plus nested folders and links between folders; secret file content never reaches the model.
+* **Pending local checks:** tests that need the project installed (the doctor test with all packages, live chat checks) are listed in `PLAN.md` and run on the Linux machine.
 * **Sync tests:** every section of the example configuration must match the built-in defaults exactly; the `llm` section must have the same keys (its values are the project's Databricks setup).
 * **Live checks:** a few checks against the real workspace AI Gateway (one chat question with a tool call, `doctor --online`), recorded in the progress log.
 * **Each step:** all earlier tests must still pass before a commit.
@@ -193,7 +205,8 @@ This section grows with each step.
 * Checked live from Databricks; still to be checked on the Linux machine with real model files.
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
 * Shell commands open their paths after Champion's check (time-of-check race); `cp -r` into an existing folder can follow links already inside it; shell writes are listed but have no undo. A sandbox backend later removes the first two.
-* Next: existing shell scripts as checked tools (4c), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
+* Per-folder access has no separate delete right (delete = edit + approval every time) and the GUI table comes with the TUI (step 6).
+* Next: existing shell scripts as checked tools (4c), `file_transform` (4d), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
 * After the demo: skills, MCP, model editing, code execution with review, `champion kb`, ANSA/META and PRIMER specialists, a sandboxed execution backend.
 
 ## 11. Likely questions
@@ -201,6 +214,7 @@ This section grows with each step.
 * **Why the OpenAI Agents SDK and not LangGraph?** Smaller surface for this use case: the main need is tool calling with strict control, which `Agent`, `Runner`, hooks, guardrails and tool approval cover directly. Graph orchestration is not needed because the orchestrator delegates to specialists as tools.
 * **Why agents as tools instead of handoffs?** The orchestrator keeps the conversation and the policy in one place, and each specialist only gets the tools it needs. With handoffs, control and context move to the specialist.
 * **How do you stop the model from reading files it should not?** The access level lives in the run context, which the model cannot see or change; every file tool checks it before acting, and some paths are always blocked. The model's request is treated as untrusted input.
+* **What if the engineer needs two folders, one to read and one to change?** The access list (step 4e): `/access add /data/models read`, `/access add /scratch/runs edit`. The longest matching folder wins, presets keep the simple cases simple, and only the user can change the list.
 * **How do you handle 1 GB+ models?** An index of keyword positions, built once by streaming; the model asks for outlines, searches and small ranges; edits are exact-text patches applied by streaming to a new file and swapping it in.
 * **How do you test an LLM application?** Deterministic tests with a scripted fake model for all logic around the model; a small number of manual or online checks for real model behaviour.
 * **Why the Databricks AI Gateway?** Model access is governed centrally (permissions, usage tracking) and no provider key is needed; Champion only needs the workspace URL and a token, and the config refuses ungoverned endpoints.

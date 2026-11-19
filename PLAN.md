@@ -788,7 +788,27 @@ The same model as a table: folder picker, None/Read/Edit per row, a row for ever
 #### 4e.7 Verify
 `champion chat --level 2.1`, then `/access add <models folder> read`, `/access add <runs folder> edit`, `/access outside none`, `/access`: reading the models folder works, editing it is BLOCKED with the `/access set` hint, creating a folder in the runs folder works and is listed in `/changes`, reading any other outside folder is BLOCKED; `/access save`, restart, `/access` shows the same list.
 
-- [ ] Step 4e not started
+#### Step 4e status (built 19 Nov 2026, not yet live-checked)
+- [x] `champion/policy/access.py`: access list (working folder, any number of folders, everything else), rights `none`/`read`/`edit` (`write` accepted as old name), longest match wins, presets 1.1-2.2, conversion of `policy.custom`, folder checks, `~/.champion/access.yaml` load (refuses links and files others can write) and save (mode 600, atomic).
+- [x] `scope.py`, `guard.py`, `tool_policy.py`, `edit.py`, `changes.py`, `command_policy.py` use the list; BLOCKED messages name the entry and the fix (`/access set N edit`, `/access add PATH read`).
+- [x] `context.py`, `runtime.py`: start access = preset -> `access` in config.yaml -> saved file -> `--level`/`--read`/`--edit`/`--outside`; `/level` applies a preset and keeps the folders; every change (also `/level`) is one audit row with agent `user`.
+- [x] `champion/access_commands.py` + `chat.py`: `/access`, `add`, `set`, `remove`, `outside`, `working`, `preset`, `save` (shows a diff); wide edit (`/`, home, a parent of the working folder, everything else) asks `Continue? [y/N]`, default no; skipped folders shown as warnings in the banner.
+- [x] `cli.py`: `champion chat --read/--edit/--outside`, `champion access list|add|remove|outside|working` (works on the saved file).
+- [x] Config: `access` section (`preset`, `working`, `outside`, `folders`, `file`) with validation, in `config.example.yaml`.
+- [x] Tests: `tests/test_folder_access.py` (15 tests); 7 older assertions changed to the "edit" wording. On Databricks serverless: 208 passed, `test_doctor.py::test_cli_doctor_exit_codes` deselected (see pending local checks). Scripted chat of 4e.7 checked (read folder read, edit BLOCKED with hint, `mkdir` in edit folder listed in `/changes`, other folder BLOCKED, save, restart shows the same list).
+- [x] Docs: `docs/steps/04e-folder-access.md`, README access section, REPORT (status, decision, safety, progress log, metrics, demo, questions).
+- [x] Commit and push (commit "Step 4e: per-folder access", 19 Nov 2026).
+- [ ] Pending local checks (below).
+
+#### Pending local checks (run by the user's local agent on the Linux machine, project installed)
+These need the project installed (`pip install -e .[dev]`) and could not run here:
+1. Full suite with all dependencies: `pytest -q` must show 209 passed, including `tests/test_doctor.py::test_cli_doctor_exit_codes` (fails on Databricks serverless only because `textual` is not installed there).
+2. `champion doctor` exit code 0 with the real `config/config.yaml`.
+3. 4e.7 live: `champion chat --level 2.1`, then `/access add <models folder> read`, `/access add <runs folder> edit`, `/access outside none`, `/access`; ask to read a model in the models folder (works), to edit it (BLOCKED with `/access set 1 edit`), to create a folder in the runs folder (works, listed in `/changes`), to read a file elsewhere (BLOCKED); `/access save`, `/exit`, start again, `/access` shows the same list; `ls -l ~/.champion/access.yaml` shows `-rw-------`.
+4. `/access add ~ edit` asks `Continue? [y/N]`; Enter leaves the list unchanged.
+5. `champion access list`, `champion access add <folder> read`, `champion access remove <folder>` on the command line.
+6. `champion chat --read <folder> -q "list the files in <folder>"` works without changing the saved file.
+7. Ask the agent to change `~/.champion/access.yaml` or its own access: it must refuse (no access tool; the folder is blocked).
 
 ### Design principle for future steps
 Champion follows a GitHub Copilot-like division of responsibility:
@@ -939,9 +959,10 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * MCP: knowledge-retrieval MCP per agent later, plus web search and mail handling. (User, in conversation.)
 * Fast demo order: finish a working demo for the interview as soon as possible; steps by demo value, everything on `main` until the demo. (User, in conversation, 16 Nov 2026.)
 * One framework only (OpenAI Agents SDK); no LangGraph or CrewAI versions, to save time. (User, in conversation, 16 Nov 2026.)
+* Step 4e: `/access` changes are for the session; `/access save` keeps them in `~/.champion/access.yaml` (mode 600). Delete stays "edit + approval every time". 4e is built before 4c/4d. User-facing word for changing files is "edit". (User, in conversation, 19 Nov 2026.)
+* Tests that need the project installed (doctor with all packages, live chat) are run by the user's local agent on the Linux machine; see "Pending local checks" in step 4e. (User, in conversation, 19 Nov 2026.)
 
 ## Open decisions
-* Step 4e (per-folder access), proposed and waiting for the user: changes from `/access` are for the session unless `/access save` (proposed) or saved at once; delete stays "edit + approval every time" (proposed) or becomes its own right per folder; build 4e before 4c/4d (proposed) or with the GUI in step 6.
 * Step 4d (`file_transform`), proposed and waiting for the user: `edit.transform_backup_max_bytes` 2 GiB (larger files only with an `output` file); `upper`/`lower` ASCII only like `tr a-z` (Unicode later); in-place undo by full copy in the first version. Version 1 scope agreed with the user (19 Nov 2026): `upper`, `lower`, `delete_chars`, `squeeze`, `line_endings`, `columns`, `join_lines`; `wrap`, `reflow` and `apply_patch` deferred.
 * Step 4c script tools: how many existing scripts, which only read and which write or delete, and which environment settings (licences, modules) they need.
 * File-size limit for files written by commands (`cp`, `tar`, `mv` to another disk): proposal `execution.max_command_file_bytes`, default 8 GiB (same as `pydyna.max_model_bytes`), because `execution.max_output_file_bytes` (100 MiB, meant for generated code) would stop copies of normal LS-DYNA models.

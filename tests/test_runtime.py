@@ -146,7 +146,7 @@ def test_session_info_content(tmp_path):
     info = describe_session(ChampionContext.from_config(config))
     assert info["access_level"] == "2.1"
     assert info["access_level_enforced"] is True
-    assert "read the working folder and outside it" in info["access"]
+    assert "working folder read, everything else read" in info["access"]
     assert info["working_directory"] == str(tmp_path.resolve())
     assert info["enabled_specialists"] == ["linux_coder", "pydyna"]
     assert SECRET not in json.dumps(info)

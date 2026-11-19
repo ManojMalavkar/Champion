@@ -162,7 +162,9 @@ def test_level_change_in_chat_allows_the_read(setup):
     assert "Unknown level 9.9" in shown
     assert "Access level is now 2.1" in shown
     assert "outside text" in tool_outputs(runtime.model.calls[3])[-1]
-    assert [r["decision"] for r in runtime.audit.recent()] == ["block", "allow"]
+    rows = runtime.audit.recent()
+    assert [r["decision"] for r in rows if r["tool"] != "/access"] == ["block", "allow"]
+    assert [r["agent"] for r in rows if r["tool"] == "/access"] == ["user"]  # the /level change (step 4e)
     assert "block filesystem_read" in shown and "allow filesystem_read" in shown
 
 
