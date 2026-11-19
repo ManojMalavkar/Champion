@@ -627,7 +627,7 @@ scripts:
 
 - [ ] Step 4c not started
 
-### Step 4d - `file_transform`: text transforms without a shell
+### Step 4d - Text transforms and flexible editing
 Added with the user, 19 Nov 2026; reduced to a useful first version with the user the same day. Goal: the Linux agent can do the jobs of `tr`, `paste` and `dos2unix`/`unix2dos` on files. These commands stay blocked in `shell_run`: without a shell there is no `<` or `>` (so `tr` cannot even read a file and the others can only print). Instead, one structured tool written in Python, built like `file_edit`: checked paths, streaming, atomic writes, change list and `/undo`. Independent of 4c; can be built before or after it.
 
 Version 1 operations: `upper`, `lower`, `delete_chars`, `squeeze`, `line_endings`, `columns`, `join_lines`. Deferred to a later version: `wrap` (`fold`), `reflow` (`fmt`) and `apply_patch` (`patch`); `patch` in particular needs its own safety design (it can create, delete or rename files named inside the patch, and some versions run `ed` scripts).
@@ -683,6 +683,697 @@ Rules:
 `champion chat --level 1.2`: "Make input.txt upper case into output.txt", "Remove all digits from input.txt", "Squeeze repeated spaces in notes.txt", "Merge names.txt and emails.txt into contacts.csv", "Join every two lines of pairs.txt with a colon", "Convert script.sh to Unix line endings", "Convert report.txt to Windows line endings", then `/changes` and `/undo`. "Rewrap messy_notes.txt to 75 characters" and "Apply changes.patch to config.conf" get a clear "not supported yet" answer. At 1.1 each is BLOCKED with the `/level` hint; `Run tr a-z A-Z` is BLOCKED with the pointer to `file_transform`.
 
 - [ ] Step 4d not started
+
+The flexible-editing update below supplements the `file_transform` plan above.
+Champion's fixed protected-path and secret blocks remain mandatory; approval
+cannot override them.
+
+#### Step 4d Update: Flexible Editing for Coder Agents
+
+##### 1. Objective
+
+Extend Champion's file-editing capability so that future specialists, especially a Coder Agent, can safely create and modify source code, configuration, documentation, scripts, and engineering text files.
+
+The editing layer must remain:
+
+- Policy controlled
+- Restricted by folder access
+- Transactional
+- Atomic
+- Auditable
+- Reversible
+- Concurrency safe
+- Suitable for both small source files and very large engineering text files
+
+Champion agents may propose filesystem changes, but only trusted Champion tools may apply those changes.
+
+---
+
+##### 2. Core Design Principle
+
+```text
+Coder Agent / Specialist
+        |
+        v
+Structured edit request
+        |
+        v
+Champion file-edit tools
+        |
+        +--> Validate path and folder access
+        +--> Validate operation and limits
+        +--> Validate anchors or expected content
+        +--> Validate file version/hash
+        +--> Build combined diff
+        +--> Apply atomic write
+        +--> Record change transaction
+        +--> Support /changes and /undo
+```
+
+Agents must not directly modify files through unrestricted shell commands such as:
+
+```text
+sed -i
+awk with output redirection
+perl -pi
+python one-line file rewrites
+shell redirection to protected files
+```
+
+These commands bypass Champion's access checks, diff, audit history, concurrency protection, and undo system.
+
+---
+
+##### 3. Required Editing Operations
+
+###### 3.1 Exact text replacement
+
+Status: Existing foundation. Keep and reuse.
+
+```python
+file_edit(
+    path="champion/runtime.py",
+    edits=[
+        {
+            "operation": "replace",
+            "old_text": "def connect():\n    return client()",
+            "new_text": "def connect(timeout=30):\n    return client(timeout=timeout)"
+        }
+    ]
+)
+```
+
+Requirements:
+
+- The old text must match exactly once by default.
+- Zero matches must fail without modifying the file.
+- Multiple matches must fail unless the caller explicitly supplies occurrence or context.
+- Preserve encoding and line-ending style.
+- Generate a diff before commit.
+- Record one reversible change transaction.
+
+###### 3.2 Insert before an anchor
+
+```python
+{
+    "operation": "insert_before",
+    "anchor": "def run():",
+    "text": "def validate():\n    ...\n\n"
+}
+```
+
+Requirements:
+
+- Anchor must be unambiguous.
+- Support optional occurrence selection.
+- Do not insert if the requested text already exists when `idempotent=true`.
+
+###### 3.3 Insert after an anchor
+
+```python
+{
+    "operation": "insert_after",
+    "anchor": "import pathlib\n",
+    "text": "import logging\n"
+}
+```
+
+Typical uses:
+
+- Add imports
+- Add configuration entries
+- Add a method after another method
+- Add documentation sections
+
+###### 3.4 Delete an exact text block
+
+```python
+{
+    "operation": "delete",
+    "old_text": "def deprecated_function():\n    ...\n"
+}
+```
+
+Internally this may reuse the replacement engine with `new_text=""`.
+
+Requirements:
+
+- Exact and unambiguous match
+- Diff preview
+- Atomic application
+- Undo support
+
+###### 3.5 Multiple edits in one transaction
+
+```python
+file_edit(
+    path="champion/runtime.py",
+    expected_sha256="abc123...",
+    edits=[
+        {"operation": "insert_after", "anchor": "import pathlib\n", "text": "import logging\n"},
+        {"operation": "replace", "old_text": "TIMEOUT = 10", "new_text": "TIMEOUT = 30"},
+        {"operation": "delete", "old_text": "LEGACY_MODE = True\n"}
+    ]
+)
+```
+
+Requirements:
+
+1. Validate every edit before writing.
+2. Refuse the complete transaction if any edit fails.
+3. Detect overlapping or conflicting edits.
+4. Apply edits deterministically.
+5. Generate one combined diff.
+6. Perform one atomic file replacement.
+7. Create one change record.
+8. Undo all edits together.
+
+No partially modified file is allowed.
+
+###### 3.6 Create a new file
+
+```python
+file_create(
+    path="champion/specialists/coder.py",
+    content="...",
+    create_parents=False,
+    overwrite=False
+)
+```
+
+Requirements:
+
+- Require `edit` access to the parent folder.
+- Refuse overwrite by default.
+- Validate filename and protected-path policy.
+- Use atomic creation.
+- Add the creation to `/changes`.
+- Undo must remove the created file if it has not changed independently.
+- Optional parent-directory creation must be explicit.
+
+###### 3.7 Replace a complete small file
+
+```python
+file_write(
+    path="config.example.yaml",
+    content="...",
+    expected_sha256="abc123..."
+)
+```
+
+Use cases:
+
+- Small configuration files
+- Short Python modules
+- Markdown documents
+- Test fixtures
+
+Restrictions:
+
+- Not the preferred method for normal code changes.
+- Default maximum file size: 1 MiB.
+- Configurable hard maximum: 10 MiB.
+- Large CAE or solver files must use patch-based or streaming operations.
+- Existing files require `expected_sha256` unless `force=true` is separately approved.
+
+###### 3.8 Line-range replacement
+
+Provide a controlled fallback when exact anchors are not practical.
+
+```python
+{
+    "operation": "replace_lines",
+    "start_line": 120,
+    "end_line": 138,
+    "expected_text": "original text from lines 120-138",
+    "new_text": "replacement text"
+}
+```
+
+Requirements:
+
+- Line ranges are 1-based and inclusive.
+- `expected_text` is mandatory.
+- Edit fails if current content differs.
+- Agents should prefer semantic anchors over line numbers because line numbers become stale.
+
+---
+
+##### 4. Proposed Tool Interface
+
+Keep the public interface small:
+
+```text
+filesystem_read
+filesystem_find
+filesystem_grep
+
+file_create
+file_edit
+file_write
+
+filesystem_mkdir
+filesystem_move
+filesystem_rename
+```
+
+Recommended `file_edit` schema:
+
+```python
+file_edit(
+    path: str,
+    edits: list[EditOperation],
+    expected_sha256: str | None = None,
+    dry_run: bool = False,
+    encoding: str | None = None,
+    newline: str = "preserve"
+)
+```
+
+Supported edit operations:
+
+```text
+replace
+insert_before
+insert_after
+delete
+replace_lines
+```
+
+Do not create separate low-level tools for every variation if they share the same validation, patch, atomic-write, audit, and undo pipeline.
+
+---
+
+##### 5. Coder Agent Workflow
+
+###### Example request
+
+```text
+Add timeout support to runtime.py, expose it in config.yaml,
+and add tests without changing unrelated code.
+```
+
+###### Expected workflow
+
+```text
+1. Inspect relevant files
+2. Search symbols and configuration keys
+3. Read targeted code ranges
+4. Build a structured multi-file change plan
+5. Capture SHA-256 for every source file
+6. Prepare per-file edit transactions
+7. Validate all anchors and expected content
+8. Produce diffs
+9. Request approval when required by policy
+10. Apply atomic changes
+11. Run allowed verification commands
+12. Report changed files, tests, and failures
+13. Allow /changes and /undo
+```
+
+The Coder Agent must not assume that the file has remained unchanged between reading and editing.
+
+---
+
+##### 6. Multi-File Change Sets
+
+A coding task normally affects several files. Add a higher-level change-set coordinator after single-file editing is stable.
+
+```python
+change_set_apply(
+    title="Add runtime timeout support",
+    files=[
+        {"path": "champion/runtime.py", "expected_sha256": "...", "edits": [...]},
+        {"path": "config.example.yaml", "expected_sha256": "...", "edits": [...]},
+        {"path": "tests/test_runtime.py", "expected_sha256": "...", "edits": [...]}
+    ],
+    dry_run=False
+)
+```
+
+Requirements:
+
+- Prevalidate every file before modifying any file.
+- Stage new versions in temporary files.
+- Produce a combined change-set summary.
+- Maintain per-file diffs.
+- Record one parent change-set ID and individual child change IDs.
+- If commit fails, restore files already committed where safe.
+- Undo operates on the whole change set by default.
+- Refuse undo if later unrelated changes would be overwritten.
+
+True cross-file atomicity is not guaranteed by a normal filesystem. Champion must therefore use staged writes, ordered commit, rollback records, and clear failure reporting.
+
+---
+
+##### 7. Concurrency Protection
+
+Every edit of an existing file should support optimistic concurrency.
+
+```text
+Agent reads file
+    |
+    +--> Champion returns SHA-256 and metadata
+    |
+Agent proposes edit with expected SHA-256
+    |
+Champion recalculates current SHA-256
+    |
+    +--> Match: continue
+    +--> Mismatch: refuse, reread, and re-plan
+```
+
+Recommended checks:
+
+- SHA-256 of original content
+- File size
+- Modification time
+- Inode/device where appropriate
+- Optional Git blob/object identity for repository files
+
+A hash mismatch is not an error to override automatically. It normally means the file must be read again.
+
+---
+
+##### 8. Safety and Policy Requirements
+
+All editing tools must enforce:
+
+1. Canonical path resolution
+2. Symlink and path-traversal protection
+3. Folder access mode must be `edit`
+4. Protected file and secret policy
+5. Maximum size and operation limits
+6. Text/binary detection
+7. Encoding validation
+8. Exact anchor validation
+9. Concurrency validation
+10. Atomic temporary-file write
+11. `fsync` before replacement
+12. File metadata preservation where supported
+13. Diff and audit generation
+14. Change history
+15. Safe undo
+
+Protected or high-risk paths should be denied by default, including examples such as:
+
+```text
+/etc
+/boot
+/proc
+/sys
+/dev
+~/.ssh
+credential and token files
+Champion's own policy database
+```
+
+Repository files should still require the folder to be explicitly registered with `edit` access.
+
+---
+
+##### 9. Diff and Approval Policy
+
+###### Low-risk change
+
+Examples:
+
+- Add an import
+- Update a test assertion
+- Modify a Markdown paragraph
+
+Behavior:
+
+- Validate
+- Show concise diff summary
+- Apply according to configured agent mode
+- Record change
+
+###### Higher-risk change
+
+Examples:
+
+- Whole-file replacement
+- Delete more than 100 lines
+- Modify more than 20% of a file
+- Change more than 10 files
+- Modify executable startup/configuration files
+- Edit files detected as secrets or credentials
+
+Behavior:
+
+- Require explicit approval or stricter policy
+- Show full affected-file summary
+- Never silently force through failed concurrency checks
+
+Thresholds should be configurable, but the values above are recommended defaults for the first implementation.
+
+---
+
+##### 10. Undo Requirements
+
+Undo must verify that it will not overwrite newer work.
+
+For each change, store:
+
+```text
+change_id
+change_set_id
+operation
+path
+before_sha256
+after_sha256
+before_size
+after_size
+timestamp
+agent/specialist
+tool name
+diff summary
+backup or reverse patch reference
+```
+
+Undo flow:
+
+```text
+Read current file
+    |
+Current SHA-256 == recorded after_sha256?
+    |
+    +--> Yes: apply reverse operation atomically
+    +--> No: refuse normal undo and report conflict
+```
+
+For `file_create`, undo deletes the file only when its current hash still matches the originally created content.
+
+---
+
+##### 11. Git-Aware Behavior
+
+Git is not a replacement for Champion's change history, but it can improve coding workflows.
+
+Recommended capabilities:
+
+- Detect repository root
+- Report current branch and dirty status
+- Include `git diff --stat` after edits
+- Never commit automatically unless the user explicitly requests it
+- Never discard unrelated uncommitted changes
+- Do not require Git because CAE models and general folders may not be repositories
+
+Champion's `/changes` and `/undo` must continue to work outside Git repositories.
+
+---
+
+##### 12. Testing Plan
+
+###### Unit tests
+
+Add tests for:
+
+- Exact replacement
+- Insert before
+- Insert after
+- Delete
+- Line-range replacement
+- Multiple edits
+- Overlapping edits
+- Duplicate anchors
+- Missing anchors
+- Idempotent insertion
+- Empty replacement
+- Encoding preservation
+- CRLF/LF preservation
+- Final line without newline
+- File creation
+- Overwrite refusal
+- Whole-file size limits
+- Hash mismatch
+- File changed during edit
+- Symlink/path traversal rejection
+- Read-only folder rejection
+- Binary-file rejection
+- Diff generation
+- Change recording
+- Undo after each operation
+- Undo conflict after external modification
+
+###### Integration tests
+
+- Coder edits Python module and associated test
+- Coder updates YAML configuration
+- Multi-file dry run
+- Multi-file apply
+- Simulated partial commit failure and rollback
+- Concurrent user edit from another process
+- Git repository with existing uncommitted changes
+- Large streaming text file
+- LS-DYNA keyword deck patch without whole-file memory loading
+
+###### Acceptance criteria
+
+- No partial single-file edits
+- Failed validation leaves original file unchanged
+- All successful changes produce a diff and change record
+- Undo restores the exact original bytes when no conflict exists
+- Concurrent modification is detected before commit
+- Coder Agent cannot bypass folder access policy
+- Large files remain streaming-safe
+
+---
+
+##### 13. Implementation Sequence
+
+###### Step 4d.1: Normalize edit operation model
+
+- Define typed edit-operation schemas
+- Convert existing exact replacement to the common interface
+- Preserve current behavior and tests
+
+###### Step 4d.2: Add flexible single-file operations
+
+- `insert_before`
+- `insert_after`
+- `delete`
+- `replace_lines`
+- Multi-edit validation
+- Combined diff
+
+###### Step 4d.3: Add creation and controlled whole-file write
+
+- `file_create`
+- `file_write`
+- Size and overwrite policy
+- Undo support
+
+###### Step 4d.4: Strengthen concurrency
+
+- Return SHA-256 from file reads
+- Require `expected_sha256` for agent edits
+- Refuse stale patches
+
+###### Step 4d.5: Add multi-file change sets
+
+- Prevalidation
+- Staging
+- Ordered commit
+- Rollback records
+- Parent/child change history
+- Change-set undo
+
+###### Step 4d.6: Coder Agent integration
+
+- Structured edit planning
+- Read/search/edit loop
+- Diff presentation
+- Policy approval
+- Verification command execution
+- Final change report
+
+###### Step 4d.7: Hardening
+
+- Security tests
+- Race-condition tests
+- Large-file tests
+- Fault injection
+- Local Linux-machine validation
+- Documentation updates
+
+---
+
+##### 14. Definition of Done
+
+Step 4d flexible editing is complete when:
+
+- Existing exact replacement remains supported.
+- Coder Agent can insert, replace, delete, and batch multiple edits.
+- New files can be created safely.
+- Small files can be replaced under policy-controlled limits.
+- Every existing-file edit supports hash-based concurrency checks.
+- Every write is atomic at the individual-file level.
+- All changes generate diffs and audit records.
+- `/changes` and `/undo` work for all editing operations.
+- Multi-file coding changes are staged, validated, and recoverable.
+- Folder-level `read` and `edit` access remains authoritative.
+- Shell-based editing cannot bypass Champion controls.
+- Automated tests cover normal, edge, security, concurrency, and rollback cases.
+
+---
+
+##### 15. Deferred Features
+
+Do not include these in the first flexible-editing milestone:
+
+- Full AST rewriting for every programming language
+- Automatic Git commits or pushes
+- Unrestricted shell editing
+- Automatic conflict merging after hash mismatch
+- Binary file editing
+- IDE/LSP integration
+- Remote repository modification
+
+These can be added after the transactional text-editing layer is proven stable.
+
+---
+
+##### Final Architecture
+
+```text
+User
+  |
+Champion Terminal / Chat / TUI
+  |
+Orchestrator
+  |
+Specialist Interface
+  |
+  +--> Linux Specialist
+  +--> Future Coder Agent
+  +--> Future PyDyna Agent
+  +--> Future ANSA/META Agent
+  |
+Structured filesystem request
+  |
+Champion Safe Tool Layer
+  |
+  +--> Read / Search
+  +--> Create
+  +--> Replace / Insert / Delete
+  +--> Multi-edit transaction
+  +--> Controlled whole-file write
+  +--> Multi-file change set
+  |
+Policy and Access Enforcement
+  |
+Concurrency Check
+  |
+Diff / Approval
+  |
+Atomic Write / Staged Commit
+  |
+Audit / Changes / Undo
+```
+
+This design gives future agents flexible coding capability without giving them unrestricted filesystem or shell control.
 
 ### Step 4e - Per-folder access (read or edit per folder)
 Added with the user, 19 Nov 2026. Goal: the user gives access folder by folder: any number of outside folders, each with its own right, plus one separate setting for everything else outside. The same model is used by the terminal now and by the GUI later (step 6). The user-facing word for changing files is **edit** (not "write") everywhere: config, chat commands, banner, BLOCKED messages and docs. Can be built before 4c and 4d, so their tools use it from the start (recommended, waiting for the user).
