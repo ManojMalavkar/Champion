@@ -1,8 +1,9 @@
-"""Run context: Champion's own data that tools can use but the model never sees.
+"""Run context: Champion's own data used by tools and agent instructions.
 
 The Agents SDK passes one context object through a whole run. Tools receive it
-as ``RunContextWrapper[ChampionContext]`` (``ctx.context``). Nothing in it is
-sent to the model unless a tool chooses to return it. The access level stored
+as ``RunContextWrapper[ChampionContext]`` (``ctx.context``). The current access
+level is included in agent instructions; other context data is not sent to the
+model unless a tool chooses to return it. The access level stored
 here is what every tool checks before touching a file (step 2); only the user
 can change it (``--level`` or ``/level``), never the model.
 

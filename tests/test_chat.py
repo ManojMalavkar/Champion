@@ -44,6 +44,24 @@ def test_chat_commands_and_answer(tmp_path):
     assert out.endswith("Bye.")
 
 
+def test_level_change_updates_orchestrator_and_specialist_instructions(tmp_path):
+    runtime = make_runtime(tmp_path, [
+        text("Level 1.1 is read-only."),
+        tool_call("linux_coder_agent", {"input": "Write file names to a text file"}),
+        text("I can use the permitted tools."),
+        text("The Linux specialist checked the request."),
+    ])
+    out = drive(runtime, ["What can I do?", "/level 1.2", "Write file names to a text file", "/exit"])
+
+    calls = runtime.model.calls
+    assert "Access level is now 1.2" in out
+    assert "Current access level: 1.1" in calls[0]["instructions"]
+    assert "Current access level: 1.2" in calls[1]["instructions"]
+    assert "Current access level: 1.2" in calls[2]["instructions"]
+    assert calls[2]["instructions"].startswith("You are Champion's Linux specialist")
+    assert "Current access level: 1.2" in calls[3]["instructions"]
+
+
 def test_chat_ends_on_eof(tmp_path):
     assert drive(make_runtime(tmp_path, []), []).endswith("Bye.")
 

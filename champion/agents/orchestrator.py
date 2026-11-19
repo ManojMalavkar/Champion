@@ -25,7 +25,7 @@ import dataclasses
 import json
 from typing import Any, Iterable
 
-from agents import Agent, FunctionTool, RunConfig
+from agents import Agent, FunctionTool, RunConfig, RunContextWrapper
 from agents.exceptions import MaxTurnsExceeded
 from agents.models.interface import Model
 
@@ -112,6 +112,14 @@ def orchestrator_instructions(specs: Iterable[SpecialistSpec]) -> str:
     return BASE_INSTRUCTIONS + SPECIALISTS_HEADER.format(entries="\n".join(entries))
 
 
+def with_current_level(instructions: str):
+    def render(ctx: RunContextWrapper[ChampionContext], agent: Agent[ChampionContext]) -> str:
+        return (f"{instructions}\n\nCurrent access level: {ctx.context.level.describe()}. "
+                "This current level supersedes any earlier level mentioned in the conversation. "
+                "Tools enforce the actual policy and may still block an operation.")
+    return render
+
+
 def nested_run_config(config: Config | None, spec: SpecialistSpec) -> RunConfig:
     tracing = bool(config.get("llm.tracing")) if config is not None else False
     return RunConfig(tracing_disabled=not tracing, trace_include_sensitive_data=False,
@@ -121,7 +129,7 @@ def nested_run_config(config: Config | None, spec: SpecialistSpec) -> RunConfig:
 def build_specialist_agent(spec: SpecialistSpec, model: Model) -> Agent[ChampionContext]:
     return Agent[ChampionContext](
         name=spec.title,
-        instructions=spec.instructions.strip() + SPECIALIST_RULES,
+        instructions=with_current_level(spec.instructions.strip() + SPECIALIST_RULES),
         tools=list(spec.tools),
         model=model,
     )
@@ -196,7 +204,7 @@ def build_orchestrator(model: Model, specs: Iterable[SpecialistSpec] = (),
     specs = list(specs)
     return Agent[ChampionContext](
         name=ORCHESTRATOR_NAME,
-        instructions=orchestrator_instructions(specs),
+        instructions=with_current_level(orchestrator_instructions(specs)),
         tools=[session_info, *FILE_TOOLS, *(build_specialist_tool(s, model, config) for s in specs)],
         model=model,
     )
