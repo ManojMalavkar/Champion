@@ -152,7 +152,10 @@ def run_named_check(context: ChampionContext, name: str, audit: dict | None = No
     ask(context, ApprovalRequest("run_check", executable, tuple(argv), "check", str(folder), context.level.name,
                                  (str(folder),), note=f"runs the configured check '{name}' (project code)"))
     limits = Limits.from_config(context.config)
-    result = run_steps([argv], str(folder), limits)
+    names = context.config.get("coder.check_env") or []
+    extra = {n: os.environ[n] for n in names if n in os.environ}
+    audit["env"] = sorted(extra)  # names only, never values
+    result = run_steps([argv], str(folder), limits, extra_env=extra)
     audit.update({"exit_code": result.exit_code, "timed_out": result.timed_out})
     verdict = "PASSED" if result.exit_code == 0 and not result.timed_out else "FAILED"
     return "\n".join(_format(argv, result, limits) + [f"Check '{name}': {verdict}"])

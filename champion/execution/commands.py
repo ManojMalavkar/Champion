@@ -161,11 +161,17 @@ def _kill_group(pgid: int, processes: list[subprocess.Popen]) -> None:
             return
 
 
-def run_steps(steps: list[list[str]], cwd: str, limits: Limits) -> CommandResult:
-    """Run one command or a pipeline (stdout of each step to the next); never a shell."""
+def run_steps(steps: list[list[str]], cwd: str, limits: Limits,
+              extra_env: dict[str, str] | None = None) -> CommandResult:
+    """Run one command or a pipeline (stdout of each step to the next); never a shell.
+
+    ``extra_env`` is only used by run_check (``coder.check_env``); it never replaces
+    the fixed variables of the clean environment."""
     executables = [resolve(argv[0]) for argv in steps]
     home = tempfile.mkdtemp(prefix="champion-home-")
     env = clean_env(home)
+    for name, value in (extra_env or {}).items():
+        env.setdefault(name, value)
     keep = max(limits.output_chars * 4, 4096)
     processes: list[subprocess.Popen] = []
     readers: list[_Reader] = []

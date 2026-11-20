@@ -93,7 +93,7 @@ DEFAULTS: dict[str, Any] = {
     },
     # Checks the Coder Agent may run with run_check (the user approves every run), e.g.
     # tests: ["/path/to/venv/bin/python", "-m", "pytest", "-q"]
-    "coder": {"checks": {}},
+    "coder": {"checks": {}, "check_env": ["LD_LIBRARY_PATH"]},
     "storage": {"audit_db": "champion.db", "log_dir": "logs"},
     "agents": {"pydyna": {"enabled": True}, "linux_coder": {"enabled": True}, "coder": {"enabled": True}},
     "pydyna": {
@@ -116,6 +116,11 @@ DEFAULTS: dict[str, Any] = {
 
 # Sections whose sub-keys are free (new agents, MCP servers, kb projects).
 OPEN_SECTIONS = {"agents", "mcp.servers", "kb.sources", "coder.checks"}
+# coder.check_env: variables copied from Champion's environment into run_check only
+# (for example LD_LIBRARY_PATH for a Python built with shared libraries). These stay fixed:
+CHECK_ENV_FIXED = {"PATH", "HOME", "LANG", "LC_ALL", "TZ", "LD_PRELOAD", "LD_AUDIT", "PYTHONSTARTUP",
+                   "BASH_ENV", "ENV"}
+SECRET_NAME = r"TOKEN|SECRET|PASSW|KEY|CREDENTIAL|AUTH|COOKIE|SESSION"
 
 # Paths resolved against the project root (working_directory is special).
 ROOT_PATH_KEYS = (
@@ -375,6 +380,16 @@ def validate(data: dict) -> list[str]:
                   or ("/" in argv[0] and not argv[0].startswith("/"))):
                 errors.append(f"coder.checks.{name} must be a list of words, the first a program in /usr/bin or "
                               f"an absolute path (got {argv!r})")
+    check_env = get("coder.check_env")
+    if not isinstance(check_env, list):
+        errors.append(f"coder.check_env must be a list of environment variable names (got {check_env!r})")
+    else:
+        for name in check_env:
+            if not (isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name)):
+                errors.append(f"coder.check_env: {name!r} is not an environment variable name")
+            elif name.upper() in CHECK_ENV_FIXED or re.search(SECRET_NAME, name, re.IGNORECASE):
+                errors.append(f"coder.check_env: {name} cannot be passed to checks (fixed by Champion or "
+                              "possibly a secret)")
     fraction = get("edit.approval_max_changed_fraction")
     if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction <= 1:
         errors.append(f"edit.approval_max_changed_fraction must be a number above 0 and at most 1 (got {fraction!r})")

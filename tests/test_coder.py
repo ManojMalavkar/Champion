@@ -409,6 +409,23 @@ def test_run_check_runs_only_configured_checks_with_approval(tmp_path):
             make(tmp_path / "bad", {"coder": {"checks": bad}})
 
 
+def test_run_check_passes_only_the_listed_environment(tmp_path, monkeypatch):
+    """Local 4d check: a Python built with shared libraries needs LD_LIBRARY_PATH (exit code 127)."""
+    show = [sys.executable, "-c", "import os; print(sorted(os.environ)); print(os.environ.get('LD_LIBRARY_PATH'))"]
+    monkeypatch.setenv("LD_LIBRARY_PATH", os.environ.get("LD_LIBRARY_PATH", "/opt/champion-test/lib"))
+    monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-secret")
+    monkeypatch.setenv("CHAMPION_EXTRA", "x")
+    config, _ = make(tmp_path, {"coder": {"checks": {"env": show}}})
+    out = run_named_check(ctx(config, approver=yes([])), "env")
+    assert os.environ["LD_LIBRARY_PATH"] in out and "DATABRICKS_TOKEN" not in out and "CHAMPION_EXTRA" not in out
+    config, _ = make(tmp_path / "none", {"coder": {"checks": {"env": show}, "check_env": []}})
+    out = run_named_check(ctx(config, approver=yes([])), "env")
+    assert "['HOME', 'LANG', 'LC_ALL', 'PATH', 'TZ']\nNone\n" in out  # only the fixed clean environment
+    for bad in (["DATABRICKS_TOKEN"], ["PATH"], ["LD_PRELOAD"], ["1X"], "LD_LIBRARY_PATH"):
+        with pytest.raises(ConfigError, match="coder.check_env"):
+            make(tmp_path / "bad", {"coder": {"check_env": bad}})
+
+
 @pytest.mark.skipif(not HAS_GIT, reason="git is not installed")
 def test_git_info_is_read_only(setup):
     config, work = setup

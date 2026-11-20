@@ -74,6 +74,8 @@ coder:
   checks: {}                        # checks the Coder Agent may run (run_check; you approve every run), e.g.
                                     #   tests: [/path/to/venv/bin/python, -m, pytest, -q]
                                     #   lint: [/path/to/venv/bin/ruff, check, .]
+  check_env: [LD_LIBRARY_PATH]      # copied from your environment into checks only (a Python built with
+                                    # shared libraries needs it); names that look like secrets are refused
 
 storage:
   audit_db: champion.db

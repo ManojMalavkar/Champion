@@ -1,6 +1,6 @@
 # Step 4d - Flexible editing
 
-Status: 4d.1-4d.7 built (244 tests; 243 pass on serverless, the doctor exit-code test runs locally). Local check on the Linux machine
+Status: 4d.1-4d.8 built (246 tests; 245 pass on serverless, the doctor exit-code test runs locally). Local check on the Linux machine
 pending (list at the end).
 
 ## 4d.1 + 4d.2 - Several edits in one change
@@ -148,7 +148,12 @@ Example config for `run_check` (empty by default; interpreters stay blocked in `
 coder:
   checks:
     tests: [/path/to/venv/bin/python, -m, pytest, -q]
+  check_env: [LD_LIBRARY_PATH]   # default; copied from your environment into checks only
 ```
+
+A check runs with the clean environment plus the variables named in `coder.check_env`
+(a Python built with shared libraries needs `LD_LIBRARY_PATH`, otherwise it exits with
+code 127). Names that look like secrets and `LD_PRELOAD` are refused.
 
 ## 4d.7 - Hardening
 
@@ -162,7 +167,7 @@ and a failed commit with rollback (nothing changed, no temporary files left).
 
 ```
 cd /nobackup/people/t0018k6/script/Github_repo/LLM/Champion
-git pull && python -m pytest -q          # expect 244 passed
+git pull && python -m pytest -q          # expect 246 passed
 cd /d/people/t0018k6/champ-test/work && champion chat --level 1.2
 ```
 
