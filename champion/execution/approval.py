@@ -88,5 +88,8 @@ def ask(context: ChampionContext, request: ApprovalRequest) -> None:
     except (EOFError, KeyboardInterrupt):
         approved = False
     if not approved:
-        raise PolicyDenied("the user did not approve this command; nothing was run. Do not retry it; "
-                           "ask the user what to do instead")
+        # Local 4d check: "ask the user what to do" led to "Would you like to approve?" after a no.
+        raise PolicyDenied("the user did not approve this command (answered no at the approval prompt); "
+                           "nothing was run or changed. Do not retry it. Tell the user it was not done because "
+                           "they declined; do not ask them to approve it in your answer: approval is only given "
+                           "at the prompt, which appears again if they ask for it again")
