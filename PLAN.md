@@ -1718,7 +1718,7 @@ None yet. Format: `CR-n (track, date): what - why - status`.
 * T6 Full vehicle model: not started (waits for M0)
 * T7 Core: next is M0
 
-Security note found while planning T2 (20 Nov 2026): the existing HPC_Agent folder in `mscript-git` tracks `certs/preprod-genai-mtls.key` (a private key) and `certs/certificate-genai.pem` in Git. Champion does not copy them (secret files are blocked anyway); the user should remove them from that repository and rotate the key if it was pushed.
+Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and key there are the old agent's LLM connection (GenAI gateway, mTLS). The T2 port does not use them: `hpc_agent` uses the model defined in Champion's config (`llm` section, AI Gateway) like every other agent. No certificates or keys are copied into Champion; secret files stay blocked.
 
 ### P.8 Decisions for the parallel plan (user, 20 Nov 2026)
 
@@ -1727,7 +1727,9 @@ Security note found while planning T2 (20 Nov 2026): the existing HPC_Agent fold
 3. Databases: inside the project folder only, a separate one per agent: `knowledge/pydyna/`, `knowledge/ansa_meta/`, `knowledge/primer/`. Decided. Still open (needed in M1): which embedding model each existing Chroma database uses, and whether `pydpf_post` and `primer_js` collections exist yet.
 4. HPC: the HPC agent already exists and is connected to `mjob`; T2 ports it (no submit in the first version). Decided.
 5. Executables and licence environment for ANSA, META and PRIMER batch, DPF server for PyDPF-Post: not yet clear. Open; T3.3 and T4.3 wait for it, T1.4 needs only the host Python. Knowledge and code writing (T3.1-T3.2, T4.1-T4.2) do not wait.
-6. Answered "no": the interview demo no longer sets the priority. Start order after M0 as proposed (T5 and T6 first, they need nothing else) unless the user says otherwise.
+6. The interview demo no longer sets the priority. Start order after M0: T5 and T6 first (they need nothing else). Decided (user confirmed, 20 Nov 2026).
+7. Knowledge databases: JSONL sources committed, `vector_db/` built locally and in `.gitignore`. Decided.
+8. HPC model access: `hpc_agent` uses Champion's configured model; the old agent's certificates are not used. Decided.
 
 ## Full roadmap (after the demo)
 
@@ -1812,9 +1814,8 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 ```
 
 * Default `<agent>.knowledge_root` = `knowledge/<agent>` relative to the project folder; roots outside the project folder are refused.
-* Proposed: JSONL sources in `knowledge-base/` are committed; `vector_db/` is built from them (L5 `champion kb build`) and is in `.gitignore` (binary, large).
-
-* Config: one key per agent, `<agent>.knowledge_root` (for example `pydyna.knowledge_root`, `ansa_meta.knowledge_root`, `primer.knowledge_root`); `vector_db/` and `knowledge-base/` are derived from it. Explicit paths (such as `pydyna.database_path`) stay possible as overrides.
+* JSONL sources in `knowledge-base/` are committed; `vector_db/` is built from them (L5 `champion kb build`) and is in `.gitignore` (binary, large). (User agreed, 20 Nov 2026.)
+* Config: one key per agent, `<agent>.knowledge_root` (for example `pydyna.knowledge_root`, `ansa_meta.knowledge_root`, `primer.knowledge_root`); `vector_db/` and `knowledge-base/` are derived from it. Explicit paths (such as `pydyna.database_path`) stay possible as overrides, but must also be inside the project folder.
 * The shared knowledge layer (read side in fast demo step 5, `champion kb` in L5) opens any root with this layout, checks it (`champion kb status`, `champion doctor`) and builds into it (`champion kb build`); agents only declare their collection names and JSONL files.
 * M1 introduces the `<agent>.knowledge_root` keys (instead of `pydyna.database_path` / `pydyna.keyword_reference_path`).
 
