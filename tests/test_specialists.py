@@ -60,8 +60,8 @@ def dummy():
     unregister_specialist("dummy")
 
 
-# The dummy contract tests switch the built-in Linux specialist off, so only the dummy is offered.
-LINUX_OFF = "agents:\n  linux_coder:\n    enabled: false\n"
+# The dummy contract tests switch the built-in specialists (Linux, Coder) off, so only the dummy is offered.
+LINUX_OFF = "agents:\n  linux_coder:\n    enabled: false\n  coder:\n    enabled: false\n"
 
 
 def make_config(tmp_path: Path, extra: str = ""):
@@ -125,9 +125,9 @@ def test_select_follows_config_and_rejects_unsafe_specs(tmp_path):
     assert select_specialists(make_config(tmp_path), [off_by_default]) == ([], [])
 
 
-def test_linux_is_the_builtin_specialist(tmp_path):
+def test_linux_and_coder_are_the_builtin_specialists(tmp_path):
     selected, problems = select_specialists(make_config(tmp_path))
-    assert [s.name for s in selected] == ["linux_coder"] and problems == []
+    assert [s.name for s in selected] == ["coder", "linux_coder"] and problems == []
     assert select_specialists(make_config(tmp_path, LINUX_OFF)) == ([], [])
 
 

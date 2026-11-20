@@ -26,6 +26,7 @@ first 8 KiB are binary and refused.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import stat
@@ -184,9 +185,100 @@ def apply_hunks(src_fd: int, dir_fd: int, name: str, hunks: list[tuple[int, byte
     ``hunks`` are sorted by offset and do not overlap; offsets are in the current file.
     Returns (new size, SHA-256 of the new file). On any error nothing is written.
     """
+    staged = stage_hunks(src_fd, dir_fd, name, hunks, before=before, deadline=deadline)
+    commit_replace(src_fd, dir_fd, name, staged, before=before)
+    return staged.size, staged.sha256
+
+
+# ------------------------------------------------------------------ staging (step 4d.3 / 4d.5)
+# A change is written in two phases: ``stage_*`` writes the complete new file to a
+# temporary file next to the target (fsync, mode); ``commit_*`` checks that the
+# target is unchanged and puts the temporary file in place atomically. A change
+# set stages every file before it commits any. ``discard`` removes a temporary file.
+
+@dataclass
+class Staged:
+    temp_name: str  # in the target's folder (opened through ``dir_fd``)
+    size: int
+    sha256: str
+
+
+def _new_temp(dir_fd: int, name: str) -> tuple[str, int]:
     temp_name = f".{name}.champion-{uuid.uuid4().hex[:8]}.tmp"
     temp = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
                    0o600, dir_fd=dir_fd)
+    return temp_name, temp
+
+
+def discard(dir_fd: int, temp_name: str) -> None:
+    try:
+        os.unlink(temp_name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+
+
+def stage_data(dir_fd: int, name: str, data: bytes, *, mode: int = 0o644, deadline: float) -> Staged:
+    """Stage a new file with ``data`` (for file_create)."""
+    temp_name, temp = _new_temp(dir_fd, name)
+    try:
+        for start in range(0, len(data), CHUNK):
+            _write_all(temp, data[start:start + CHUNK])
+            _check_deadline(deadline, "write")
+        os.fsync(temp)
+        os.fchmod(temp, mode)
+    except BaseException:
+        os.close(temp)
+        discard(dir_fd, temp_name)
+        raise
+    os.close(temp)
+    return Staged(temp_name, len(data), hashlib.sha256(data).hexdigest())
+
+
+def commit_create(dir_fd: int, name: str, staged: Staged) -> None:
+    """Put a staged new file in place; never replaces an existing file (hard link, not rename)."""
+    try:
+        try:
+            os.link(staged.temp_name, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        except FileExistsError:
+            raise ToolError(f"{name} already exists (created meanwhile); it was not overwritten, nothing "
+                            "was written") from None
+        except OSError as exc:
+            if exc.errno not in (errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP, errno.EMLINK):
+                raise
+            # file systems without hard links: check, then rename (a small race remains there)
+            try:
+                os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+                raise ToolError(f"{name} already exists (created meanwhile); it was not overwritten, nothing "
+                                "was written")
+            except FileNotFoundError:
+                pass
+            os.rename(staged.temp_name, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        discard(dir_fd, staged.temp_name)
+        os.fsync(dir_fd)
+    except BaseException:
+        discard(dir_fd, staged.temp_name)
+        raise
+
+
+def commit_replace(src_fd: int, dir_fd: int, name: str, staged: Staged, *, before: os.stat_result) -> None:
+    """Replace the file with the staged version if it is unchanged since ``before``."""
+    try:
+        now = os.fstat(src_fd)
+        current = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        if (now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns) \
+                or (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+            raise ToolError("the file changed while it was being edited; nothing was written")
+        os.replace(staged.temp_name, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        os.fsync(dir_fd)
+    except BaseException:
+        discard(dir_fd, staged.temp_name)
+        raise
+
+
+def stage_hunks(src_fd: int, dir_fd: int, name: str, hunks: list[tuple[int, bytes, bytes]], *,
+                before: os.stat_result, deadline: float) -> Staged:
+    """Stage the file with all ``(offset, old, new)`` blocks applied (sorted, not overlapping)."""
+    temp_name, temp = _new_temp(dir_fd, name)
     digest = hashlib.sha256()
     try:
         position, written = 0, 0
@@ -204,24 +296,12 @@ def apply_hunks(src_fd: int, dir_fd: int, name: str, hunks: list[tuple[int, byte
         written += _copy(src_fd, temp, position, None, digest, deadline)
         os.fsync(temp)
         os.fchmod(temp, stat.S_IMODE(before.st_mode))
-        now = os.fstat(src_fd)
-        current = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-        if (now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns) \
-                or (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
-            raise ToolError("the file changed while it was being edited; nothing was written")
-        os.close(temp)
-        temp = -1
-        os.replace(temp_name, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-        os.fsync(dir_fd)
     except BaseException:
-        if temp != -1:
-            os.close(temp)
-        try:
-            os.unlink(temp_name, dir_fd=dir_fd)
-        except FileNotFoundError:
-            pass
+        os.close(temp)
+        discard(dir_fd, temp_name)
         raise
-    return written, digest.hexdigest()
+    os.close(temp)
+    return Staged(temp_name, written, digest.hexdigest())
 
 
 def line_range(fd: int, start: int, end: int, deadline: float) -> tuple[int, int, int]:

@@ -1,6 +1,7 @@
 """Chat integration of step 4a: change summary, /changes, /undo, approval prompt, -q refusal."""
 
 import asyncio
+import hashlib
 
 import pytest
 from agents import Agent
@@ -50,7 +51,8 @@ def drive(runtime, lines):
 def test_edit_summary_changes_undo_and_new(setup):
     config, work = setup
     runtime = runtime_for(config, [
-        tool_call("file_edit", {"path": "main.k", "old_text": "210000.0", "new_text": "200000.0"}), text("done"),
+        tool_call("file_edit", {"path": "main.k", "old_text": "210000.0", "new_text": "200000.0",
+                                "expected_sha256": hashlib.sha256(MODEL.encode()).hexdigest()}), text("done"),
     ])
     out, _ = drive(runtime, ["change E to 200000", "/changes", "/new", "/changes", "/undo", "/undo", "/undo x"])
     assert "Changed files this turn: 1 (see /changes)" in out

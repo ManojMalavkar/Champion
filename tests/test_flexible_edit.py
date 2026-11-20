@@ -268,7 +268,9 @@ def test_through_the_linux_specialist_and_audit_has_no_text(setup):
     edits = [{"operation": "insert_after", "anchor": "import pathlib\n", "text": "import logging\n"},
              {"operation": "replace", "old_text": "TIMEOUT = 10", "new_text": "TIMEOUT = 30"}]
     outputs = linux("Add import logging after import pathlib and set TIMEOUT to 30 in app.py",
-                    [("filesystem_read", {"path": "app.py"}), ("file_edit", {"path": "app.py", "edits": edits})])
+                    [("filesystem_read", {"path": "app.py"}),
+                     ("file_edit", {"path": "app.py", "edits": edits,
+                                    "expected_sha256": hashlib.sha256(CODE.encode()).hexdigest()})])
     runtime, out, _ = drive(config, outputs, ["Add logging and set TIMEOUT to 30 in app.py", "/changes", "/undo"],
                             level="1.2")
     assert "[Linux] -> file_edit(" in out and "Changed files this turn: 1" in out

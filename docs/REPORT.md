@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-3, 4a, 4b and 4e built (fast demo order: 4c, 4d, 5-7 and "demo ready" next): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 209 automated tests (208 run on Databricks serverless; 1 needs the full local install); steps 0-3 and 4b checked live against the workspace AI Gateway, 4e live check pending on the Linux machine.
+**Status:** steps 0-3, 4a, 4b, 4d and 4e built (fast demo order: 4c, 5-7 and "demo ready" next; step 4d adds flexible multi-edit, new files, hash-checked edits, multi-file change sets and the Coder Agent, 244 tests, local check pending): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 244 automated tests (243 run on Databricks serverless; 1 needs the full local install); steps 0-3, 4b and 4e checked live, 4d live check pending on the Linux machine.
 
 ---
 
@@ -169,6 +169,16 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Evidence:** 224 tests (12 new in `tests/test_flexible_edit.py`); 223 pass on Databricks serverless (doctor exit-code test runs locally). All 212 earlier tests pass unchanged through the new engine. Covered: four operations in one call and their undo, all-or-nothing, overlaps, wrong fields, occurrence, idempotent insert, `replace_lines` across chunk borders and on a last line without newline, CRLF and Latin-1, undo with blocks that grow and shrink, hash check, dry run, approval yes/no/none, strict tool schema, a scripted chat through the Linux agent with an audit row that holds no file text.
 * **Lessons:** matching every edit against the original file (not one after another) makes a list of edits predictable and lets all of them be checked before anything is written.
 
+### Step 4d.3-4d.7 - New files, hashes, change sets, Coder Agent
+* **Built:**
+  * One pipeline for every editing tool: prepare (all checks, nothing written), stage (temporary file, fsync), commit (atomic, refused if the file changed since the check; new files via hard link, never overwriting), record (`/changes`, undo).
+  * `file_create` (never overwrites, `create_parents`, `/undo` removes the file only if unchanged) and `file_write` (whole small file, hash required, always asks). Limit `edit.max_write_bytes` (1 MiB).
+  * Reads give the SHA-256 (`filesystem_read` line 2, new `file_hash` for large models, `start_line` for later parts); an agent's `file_edit` must give `expected_sha256`, so a stale edit is refused.
+  * `change_set_apply`: up to 20 files edited, created or written as one change; all checked first, one approval if needed (also above `edit.approval_max_files` = 10 files), ordered commit with rollback, one `/undo` that first checks every file.
+  * Coder Agent (`coder_agent`) with `code_check` (syntax only, nothing run), `run_check` (only commands the user configured in `coder.checks`, approval every time) and read-only `git_info`; no `shell_run`.
+* **Evidence:** 244 tests (20 new: 19 in `tests/test_coder.py`); 243 pass on Databricks serverless (doctor exit-code test runs locally). Covered: create/write refusals (secrets, `.champion`, traversal, outside folder, symlinked folder, NUL, private key, size), a file created meanwhile not overwritten, a file changed between check and commit refused, required hash through the tool, change set all-or-nothing, approval, rollback after a failed commit, group undo refused when one file changed, a 20 MiB model in a change set under 12 MiB peak memory, fsync failure and disk full leave nothing behind, a scripted chat through the Coder with audit rows that hold no file text. Live check on the Linux machine pending (list in `docs/steps/04d-flexible-editing.md`).
+* **Lessons:** separating the check from the write made multi-file changes simple: everything that can fail for a reason the agent can fix fails before the first byte is written. A plain file system has no multi-file transaction, so the report says so: a crash during the commit phase leaves the files already written changed (and listed in `/changes`).
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -182,6 +192,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 4b | 194 | `specialists/linux.py`; `specialist_enabled` in `agents/orchestrator.py` | Step 4b |
 | 4e | 212 | `policy/access.py`, `access_commands.py`; `access` section in `core/config.py` | Step 4e |
 | 4d.1-4d.2 | 224 | `EditOperation` and `edit_file_ops` in `tools/edit.py`; `apply_hunks`, `line_range` in `tools/text_patch.py` | Step 4d.1-4d.2 |
+| 4d.3-4d.7 | 244 | `FilePlan` pipeline, `file_create`, `file_write` in `tools/edit.py`; `tools/changeset.py`, `tools/checks.py`, `specialists/coder.py`; `file_hash` | Step 4d.3-4d.7 |
 
 ## 8. Demo script (current state)
 
@@ -218,7 +229,7 @@ This section grows with each step.
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
 * Shell commands open their paths after Champion's check (time-of-check race); `cp -r` into an existing folder can follow links already inside it; shell writes are listed but have no undo. A sandbox backend later removes the first two.
 * Per-folder access has no separate delete right (delete = edit + approval every time) and the GUI table comes with the TUI (step 6).
-* Next: existing shell scripts as checked tools (4c), `file_transform` (4d), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
+* Next: existing shell scripts as checked tools (4c), `file_transform` (deferred), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
 * After the demo: skills, MCP, model editing, code execution with review, `champion kb`, ANSA/META and PRIMER specialists, a sandboxed execution backend.
 
 ## 11. Likely questions

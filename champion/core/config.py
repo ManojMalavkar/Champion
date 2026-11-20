@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -87,9 +88,14 @@ DEFAULTS: dict[str, Any] = {
         "approval_max_deleted_lines": 100,    # more lines deleted than this
         "approval_max_changed_fraction": 0.2,  # more of the file changed than this ...
         "approval_min_bytes": 8192,           # ... for files of at least this size
+        "approval_max_files": 10,             # a change set with more files than this
+        "max_write_bytes": 1 * MiB,           # file_create / file_write content (at most 10 MiB)
     },
+    # Checks the Coder Agent may run with run_check (the user approves every run), e.g.
+    # tests: ["/path/to/venv/bin/python", "-m", "pytest", "-q"]
+    "coder": {"checks": {}},
     "storage": {"audit_db": "champion.db", "log_dir": "logs"},
-    "agents": {"pydyna": {"enabled": True}, "linux_coder": {"enabled": True}},
+    "agents": {"pydyna": {"enabled": True}, "linux_coder": {"enabled": True}, "coder": {"enabled": True}},
     "pydyna": {
         "database_path": None,  # existing Chroma vector_db folder
         "keyword_reference_path": None,  # keyword_reference.jsonl
@@ -109,7 +115,7 @@ DEFAULTS: dict[str, Any] = {
 }
 
 # Sections whose sub-keys are free (new agents, MCP servers, kb projects).
-OPEN_SECTIONS = {"agents", "mcp.servers", "kb.sources"}
+OPEN_SECTIONS = {"agents", "mcp.servers", "kb.sources", "coder.checks"}
 
 # Paths resolved against the project root (working_directory is special).
 ROOT_PATH_KEYS = (
@@ -356,6 +362,19 @@ def validate(data: dict) -> list[str]:
     boolean("edit.full_backup")
     positive_int("edit.approval_max_deleted_lines")
     positive_int("edit.approval_min_bytes")
+    positive_int("edit.approval_max_files")
+    positive_int("edit.max_write_bytes", 10 * MiB)
+    checks = get("coder.checks")
+    if not isinstance(checks, dict):
+        errors.append("coder.checks must be a mapping of name -> command (a list of words)")
+    else:
+        for name, argv in checks.items():
+            if not (isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,30}", name)):
+                errors.append(f"coder.checks: {name!r} is not a valid check name (letters, digits, - and _)")
+            elif (not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv)
+                  or ("/" in argv[0] and not argv[0].startswith("/"))):
+                errors.append(f"coder.checks.{name} must be a list of words, the first a program in /usr/bin or "
+                              f"an absolute path (got {argv!r})")
     fraction = get("edit.approval_max_changed_fraction")
     if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction <= 1:
         errors.append(f"edit.approval_max_changed_fraction must be a number above 0 and at most 1 (got {fraction!r})")

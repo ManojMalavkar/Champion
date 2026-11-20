@@ -7,6 +7,7 @@ registry, the orchestrator, the tools, the policy, approval and the change list.
 """
 
 import asyncio
+import hashlib
 import itertools
 import json
 
@@ -22,7 +23,7 @@ from champion.specialists.registry import check_spec, select_specialists
 from champion.storage.audit import AuditLog
 
 NOTES = "project: crash\nsolver: smp\ncpus: 4\nend\n"
-READ_TOOLS = ["filesystem_list", "filesystem_read", "filesystem_disk_usage", "filesystem_find",
+READ_TOOLS = ["filesystem_list", "filesystem_read", "file_hash", "filesystem_disk_usage", "filesystem_find",
               "filesystem_grep", "process_list", "disk_analysis", "shell_run", "shell_pipeline"]
 _ids = itertools.count(1)
 
@@ -82,10 +83,10 @@ def test_linux_spec_and_registration(setup):
     config, _ = setup
     assert check_spec(LINUX) == []
     assert LINUX.tool_name == "linux_coder_agent" and LINUX.title == "Linux"
-    assert LINUX.tool_names == ["filesystem_list", "filesystem_read", "filesystem_disk_usage", "filesystem_find",
-                                "filesystem_grep", "process_list", "disk_analysis", "file_edit",
-                                "files_organize", "shell_run", "shell_pipeline"]
-    assert [s.name for s in select_specialists(config)[0]] == ["linux_coder"]
+    assert LINUX.tool_names == ["filesystem_list", "filesystem_read", "file_hash", "filesystem_disk_usage",
+                                "filesystem_find", "filesystem_grep", "process_list", "disk_analysis", "file_edit",
+                                "file_create", "files_organize", "shell_run", "shell_pipeline"]
+    assert [s.name for s in select_specialists(config)[0]] == ["coder", "linux_coder"]
     instructions = orchestrator_instructions([LINUX])
     assert "linux_coder_agent (Linux): Linux specialist" in instructions
     assert '"which files contain *MAT_024"' in instructions
@@ -117,7 +118,7 @@ def test_read_requests_at_read_only(setup):
     # At 1.1 the specialist sees no write tools; the orchestrator sees no shell or edit tools at all.
     assert specialist_calls(runtime)[0]["tools"] == READ_TOOLS
     assert runtime.model.calls[0]["tools"] == ["session_info", "filesystem_list", "filesystem_read",
-                                               "filesystem_disk_usage", "linux_coder_agent"]
+                                               "filesystem_disk_usage", "coder_agent", "linux_coder_agent"]
     rows = runtime.audit.recent(20)
     assert {(r["agent"], r["tool"]) for r in rows} >= {("Champion", "linux_coder_agent"), ("Linux", "filesystem_find"),
                                                         ("Linux", "filesystem_grep")}
@@ -160,7 +161,8 @@ def test_edit_undo_and_organize_at_1_2(setup):
     config, work = setup
     outputs = (linux("In notes.txt replace 'solver: smp' and 'cpus: 4' with 'solver: mpp' and 'cpus: 16'.",
                      [("file_edit", {"path": "notes.txt", "old_text": "solver: smp\ncpus: 4",
-                                     "new_text": "solver: mpp\ncpus: 16"})])
+                                     "new_text": "solver: mpp\ncpus: 16",
+                                     "expected_sha256": hashlib.sha256(NOTES.encode()).hexdigest()})])
                + linux("Move all .k files into models/ and all .dyn files into runs/.",
                        [("files_organize", {"create_folders": ["models"],
                                             "moves": [{"source": "main.k", "destination": "models/"},

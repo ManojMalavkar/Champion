@@ -42,8 +42,9 @@ def registered_specialists() -> list[SpecialistSpec]:
 def load_builtin_specialists() -> None:
     """Import the specialists shipped with Champion so they register themselves.
 
-    Linux (step 4b); the PyDyna specialist follows in step 5.
+    Linux (step 4b), Coder (step 4d.6); the PyDyna specialist follows in step 5.
     """
+    import champion.specialists.coder  # noqa: F401  (registers coder)
     import champion.specialists.linux  # noqa: F401  (registers linux_coder)
 
 

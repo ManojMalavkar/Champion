@@ -3,7 +3,9 @@
 Writes at a write level run without a prompt (they go to the change list).
 Deletes (``rm``) - and process control in a later step - ask the user every
 time. Step 4d: a higher-risk ``file_edit`` (many lines deleted, a large part
-of a file changed) asks once too (class ``edit``, the change in ``note``). The request shows exactly what will run: the resolved program, the
+of a file changed), a ``file_write`` and a large change set ask once too
+(class ``edit``, the change in ``note``); a ``run_check`` asks every time
+(class ``check``). The request shows exactly what will run: the resolved program, the
 argument list, the class, the folder it runs in, the affected paths and the
 level. Default answer is no.
 
@@ -30,6 +32,7 @@ from champion.policy.scope import PolicyDenied
 WARNINGS = {
     "delete": "Deleted files cannot be restored by Champion (/undo does not cover deletes).",
     "process_control": "This signals or stops processes.",
+    "check": "This runs project code (for example tests) with your rights; time, CPU and memory are limited.",
 }
 
 

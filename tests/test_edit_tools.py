@@ -1,6 +1,7 @@
 """Tests for file_edit (streaming patch), files_organize, the change list and /undo (step 4a)."""
 
 import asyncio
+import hashlib
 import os
 import tracemalloc
 
@@ -303,8 +304,9 @@ def test_undo_single_entry_and_level_rules(setup):
 
 def test_edit_tools_through_the_guard(setup):
     config, work, _ = setup
-    model = FakeModel([tool_call("file_edit", {"path": "main.k", "old_text": "*END", "new_text": "*END\n"},
-                                 call_id="c1"),
+    digest = hashlib.sha256(MODEL.encode()).hexdigest()  # step 4d.4: agents name the version they read
+    model = FakeModel([tool_call("file_edit", {"path": "main.k", "old_text": "*END", "new_text": "*END\n",
+                                               "expected_sha256": digest}, call_id="c1"),
                        tool_call("files_organize", {"moves": [{"source": "main.k", "destination": "m.k"}],
                                                     "create_folders": None}, call_id="c2"),
                        text("done")])

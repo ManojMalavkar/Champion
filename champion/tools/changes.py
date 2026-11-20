@@ -151,8 +151,15 @@ def _undo_one(context: ChampionContext, change: dict) -> str:
         size = undo_patch(context, undo["record"])
         target = change["path"]
         record(context, tool="undo", action="undone", path=target, size_before=change["size_after"],
-               size_after=size, detail=f"undo of #{change['number']} (file_edit)")
+               size_after=size, detail=f"undo of #{change['number']} ({change['tool']})")
         return f"#{change['number']}: {target} restored ({human_size(size)})"
+    if kind == "created":
+        from champion.tools.edit import remove_created
+
+        remove_created(context, undo["path"], undo["sha256"])
+        record(context, tool="undo", action="undone", path=undo["path"], size_before=change["size_after"],
+               size_after=None, detail=f"undo of #{change['number']} (created file removed)")
+        return f"#{change['number']}: created file {undo['path']} removed"
     if kind == "move":
         source = check_path(context.level, context.working_directory, undo["source"], "edit")
         destination = check_path(context.level, context.working_directory, undo["destination"], "edit")
@@ -176,6 +183,31 @@ def _undo_one(context: ChampionContext, change: dict) -> str:
                detail=f"undo of #{change['number']} (created folder removed)")
         return f"#{change['number']}: empty folder {folder} removed"
     raise ToolError(f"#{change['number']} cannot be undone")
+
+
+def _check_one(context: ChampionContext, change: dict) -> None:
+    """Raise if undoing ``change`` now would overwrite newer work (nothing is changed)."""
+    undo = change["undo"]
+    kind = undo.get("kind")
+    if kind == "patch":
+        from champion.tools.edit import undo_patch
+
+        undo_patch(context, undo["record"], apply=False)
+    elif kind == "created":
+        from champion.tools.edit import remove_created
+
+        remove_created(context, undo["path"], undo["sha256"], apply=False)
+    elif kind == "move":
+        source = check_path(context.level, context.working_directory, undo["source"], "edit")
+        destination = check_path(context.level, context.working_directory, undo["destination"], "edit")
+        if not os.path.lexists(destination):
+            raise ToolError(f"{destination} no longer exists; cannot move it back")
+        if os.path.lexists(source):
+            raise ToolError(f"{source} exists again; not overwritten")
+    elif kind == "mkdir":
+        folder = check_path(context.level, context.working_directory, undo["path"], "edit")
+        if not os.path.isdir(folder):
+            raise ToolError(f"{folder} no longer exists")
 
 
 def undo(context: ChampionContext, number: int | None = None) -> str:
@@ -203,10 +235,18 @@ def undo(context: ChampionContext, number: int | None = None) -> str:
     blocked = [c for c in chosen if c["undo"] is None]
     if blocked:
         raise ToolError(f"#{blocked[0]['number']} ({blocked[0]['action']} by {blocked[0]['tool']}) cannot be "
-                        "undone; only file_edit and files_organize changes can")
+                        "undone; only changes by the file tools (file_edit, file_create, file_write, "
+                        "change_set_apply, files_organize) can")
     done = [c for c in chosen if c["undone_by"]]
     if done:
         raise ToolError(f"#{done[0]['number']} was already undone by #{done[0]['undone_by']}")
+    if len(chosen) > 1:  # a group (files_organize, change set): check every entry before undoing any
+        for change in chosen:
+            try:
+                _check_one(context, change)
+            except (ToolError, PolicyDenied, OSError) as exc:
+                return (f"Undo refused, nothing was undone (the group has {len(chosen)} entries):\n"
+                        f"  #{change['number']}: NOT undone - {exc}")
     reports = []
     for change in chosen:
         try:

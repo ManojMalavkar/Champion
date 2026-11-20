@@ -67,6 +67,13 @@ edit:
   approval_max_deleted_lines: 100   # more lines deleted than this
   approval_max_changed_fraction: 0.2  # more of the file changed than this ...
   approval_min_bytes: 8192          # ... for files of at least this size (small files: lines rule only)
+  approval_max_files: 10            # a change set (change_set_apply) with more files than this
+  max_write_bytes: 1048576          # 1 MiB: largest content of file_create / file_write (at most 10 MiB)
+
+coder:
+  checks: {}                        # checks the Coder Agent may run (run_check; you approve every run), e.g.
+                                    #   tests: [/path/to/venv/bin/python, -m, pytest, -q]
+                                    #   lint: [/path/to/venv/bin/ruff, check, .]
 
 storage:
   audit_db: champion.db
@@ -76,6 +83,8 @@ agents:
   pydyna:
     enabled: true
   linux_coder:
+    enabled: true
+  coder:
     enabled: true
 
 pydyna:
