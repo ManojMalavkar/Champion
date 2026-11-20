@@ -20,6 +20,7 @@ change the data Champion uses to undo or to trust things.
 
 from __future__ import annotations
 
+import os
 from pathlib import PurePosixPath
 
 # Never read or written, at any level.
@@ -41,6 +42,17 @@ SECRET_SUFFIXES = (
     ".db", ".db-wal", ".db-shm", ".sqlite", ".sqlite-wal", ".sqlite-shm",
     ".sqlite3", ".sqlite3-wal", ".sqlite3-shm",
 )
+
+
+# Champion's own config file(s): readable, never edited by a tool. Only the user changes
+# them (an agent could otherwise raise approval limits or add a check command for the next start).
+PROTECTED_FILES: set[str] = set()
+
+
+def protect_file(path: str | os.PathLike | None) -> None:
+    if path:
+        PROTECTED_FILES.add(os.path.normpath(os.path.abspath(path)))
+        PROTECTED_FILES.add(os.path.realpath(path))
 
 
 def _under(path: str, root: str) -> bool:
@@ -75,6 +87,8 @@ def sensitive_reason(path: str | PurePosixPath, *, write: bool = False) -> str |
         for root in OS_WRITE_ROOTS:
             if _under(text, root):
                 return f"operating-system folder {root} is never written"
+        if text in PROTECTED_FILES:
+            return "this is Champion's own config file; only the user edits it (with an editor, outside the chat)"
     for part in PurePosixPath(text).parts[1:]:
         reason = name_reason(part)
         if reason:

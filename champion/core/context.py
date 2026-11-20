@@ -75,6 +75,9 @@ class ChampionContext:
                     audit: "AuditLog | None" = None, access_file: Path | None = None,
                     read: tuple[str, ...] = (), edit: tuple[str, ...] = (),
                     outside: str | None = None) -> "ChampionContext":
+        from champion.policy.sensitive import protect_file
+
+        protect_file(config.path)  # the agents may read it, never edit it
         access, warnings = build_access(config, level=level, saved_file=access_file,
                                         read=read, edit=edit, outside=outside)
         return cls(

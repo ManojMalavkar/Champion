@@ -145,10 +145,25 @@ def nested_run_config(config: Config | None, spec: SpecialistSpec) -> RunConfig:
                      workflow_name=f"Champion/{spec.title}")
 
 
+def with_configured_checks(render):
+    """For agents with run_check: name the checks the user configured (local 4d check 8:
+    without this the Coder searched the folder for test files instead of calling run_check)."""
+    def checks(ctx: RunContextWrapper[ChampionContext], agent: Agent[ChampionContext]) -> str:
+        names = ", ".join(sorted(ctx.context.config.get("coder.checks") or {}))
+        note = (f"Configured checks for run_check: {names}." if names else
+                "Configured checks for run_check: none. If asked to run tests, say that the user can add "
+                "them under coder.checks in Champion's config.yaml (only the user edits that file).")
+        return f"{render(ctx, agent)}\n{note}"
+    return checks
+
+
 def build_specialist_agent(spec: SpecialistSpec, model: Model) -> Agent[ChampionContext]:
+    render = with_current_level(spec.instructions.strip() + SPECIALIST_RULES)
+    if "run_check" in spec.tool_names:
+        render = with_configured_checks(render)
     return Agent[ChampionContext](
         name=spec.title,
-        instructions=with_current_level(spec.instructions.strip() + SPECIALIST_RULES),
+        instructions=render,
         tools=list(spec.tools),
         model=model,
     )

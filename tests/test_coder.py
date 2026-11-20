@@ -429,6 +429,38 @@ def test_run_check_passes_only_the_listed_environment(tmp_path, monkeypatch):
             make(tmp_path / "bad", {"coder": {"check_env": bad}})
 
 
+def test_champion_config_is_readable_but_never_edited(tmp_path):
+    """Local 4d check 9: the Coder read config/config.yaml inside the working folder; it must
+    never edit it (approval limits, check commands). It is told which checks exist."""
+    from agents import RunContextWrapper
+
+    from champion.agents.orchestrator import build_specialist_agent
+
+    work = (tmp_path / "work").resolve()
+    (work / "config").mkdir(parents=True)
+    (work / "config" / "config.yaml").write_text(yaml.safe_dump({
+        "llm": {"model_id": "m"}, "execution": {"working_directory": str(work)},
+        "coder": {"checks": {"tests": ["/usr/bin/true"]}}}))
+    config = load_config(work / "config" / "config.yaml", env={}, cwd=tmp_path)
+    context = ctx(config, approver=yes([]))
+    digest = read_text_file(context, "config/config.yaml").split("\n")[1].split()[1]  # reading is fine
+    attempts = [
+        lambda: edit_file_ops(context, "config/config.yaml", [{"operation": "replace", "old_text": "true",
+                                                                "new_text": "false"}], expected_sha256=digest),
+        lambda: write_file(context, "config/config.yaml", "x: 1\n", expected_sha256=digest),
+        lambda: apply_change_set(context, "t", [{"path": "./config/../config/config.yaml", "action": "write",
+                                                 "expected_sha256": digest, "content": "x: 1\n"}]),
+    ]
+    for attempt in attempts:
+        with pytest.raises(PolicyDenied, match="Champion's own config file"):
+            attempt()
+    assert "/usr/bin/true" in (work / "config" / "config.yaml").read_text()
+    agent = build_specialist_agent(CODER, FakeModel([]))
+    assert agent.instructions(RunContextWrapper(context), agent).endswith("Configured checks for run_check: tests.")
+    empty = ctx(make(tmp_path / "empty")[0])
+    assert "Configured checks for run_check: none." in agent.instructions(RunContextWrapper(empty), agent)
+
+
 @pytest.mark.skipif(not HAS_GIT, reason="git is not installed")
 def test_git_info_is_read_only(setup):
     config, work = setup
