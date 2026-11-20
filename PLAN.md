@@ -1698,11 +1698,68 @@ M0 is one step. M1 and M2 can be built at the same time by two threads on `main`
 
 | Wave | `main` (T7) | Tracks that can run |
 | --- | --- | --- |
-| 0 | M0 parallel enablers; create branches and Git folders | none (all wait for M0) |
+| 0 | M0 parallel enablers; create branches and Git folders | only the P.5a items (plain libraries and data, tests only) |
 | 1 | M1 knowledge layer, M2 program tools | T5.1-T5.2 skills framework; T6.1-T6.2 index and model tools |
 | 2 | M3 code execution | T1.1-T1.3; T2.1-T2.4; T3.1-T3.2; T4.1-T4.2; T5.3-T5.4; T6.3-T6.4 |
 | 3 | M4 TUI | T1.4-T1.6; T2.5; T3.3-T3.5; T4.3-T4.4; T6.5 |
 | 4 | L6 integration, L7 hardening, demo script | fixes only |
+
+#### P.5a What can start now, before M0
+
+M0 is one small step on `main`. Work that adds only new files in a track's own library folder and `tests/<track>/`, and does not register an agent, a tool for the model or a config section, can start now on its branch:
+* T6.1 LS-DYNA keyword index and include tree as a plain library (`champion/lsdyna/`, tests only, no `model_agent` yet).
+* T2.0 `*_jobid` file parser ported from HPC_Agent as a plain function (tests only).
+* Knowledge data (any track): collect and clean the JSONL sources for `knowledge/pydyna/`, `knowledge/ansa_meta/`, `knowledge/primer/`.
+
+Everything the model can call (agents, sub-agents, tools, config sections) waits for M0, because without it every branch would edit the same shared files (`registry.py`, `config.py`, the example config) and conflict at merge.
+
+#### P.5b Flow
+
+```text
+ NOW, parallel, no M0 needed (own folders, tests only)
+   track/vehicle-model : T6.1 keyword index library
+   track/hpc           : T2.0 *_jobid parser
+   data work           : JSONL sources for knowledge/<agent>/
+          |
+          v
+ main: M0 parallel enablers (1 step: auto-found specialists, config per spec, sub-agents)
+          |
+          +---------------------+-----------------------+----------------------+
+          |                     |                       |                      |
+          v                     v                       v                      v
+ main: M1 knowledge     main: M2 program tools   track/skills:          track/vehicle-model:
+       layer                    (mjob, batch)    T5.1-T5.4 framework,   T6.2 model_agent,
+          |                     |                checks, first skills   T6.3-T6.5
+          |                     |                       |                      |
+          +--> track/pydyna     +--> track/hpc          |                      |
+          |    T1.1-T1.3        |    T2.1-T2.4          |                      |
+          +--> track/ansa-meta  |                       |                      |
+          |    T3.1-T3.2        v                       |                      |
+          +--> track/primer   main: M3 code execution   |                      |
+               T4.1-T4.2        |                       |                      |
+                                +--> T1.4 run PyDyna/DPF scripts               |
+                                +--> T3.3-T3.4 ANSA/META batch  (*)            |
+                                +--> T4.3 PRIMER batch          (*)            |
+                                                        |                      |
+                    skills ready: T1.6, T2.5, T3.5, T4.4 <-+                   |
+                    model library ready: T1.5, T4.4 <--------------------------+
+          |
+          v
+ main: M4 TUI  -->  L6 integration (all agents together)  -->  L7 hardening
+
+ (*) waits for P.8 decision 5 (batch executables and licences)
+```
+
+One step inside a track, and a core request:
+
+```text
+ track branch: build sub-step -> tests (track + all main tests) -> docs/tracks/<track>.md -> commit, push
+      |                                                                    |
+      | needs a shared file?                                     user's live check, OK
+      v                                                                    v
+ CR-n in P.6 -> built on main -> merged -> track merges main      pull request -> merge to main
+                                                                  -> PLAN.md P.7 and REPORT.md on main
+```
 
 ### P.6 Core requests (CR)
 
