@@ -411,16 +411,19 @@ def test_run_check_runs_only_configured_checks_with_approval(tmp_path):
 
 def test_run_check_passes_only_the_listed_environment(tmp_path, monkeypatch):
     """Local 4d check: a Python built with shared libraries needs LD_LIBRARY_PATH (exit code 127)."""
-    show = [sys.executable, "-c", "import os; print(sorted(os.environ)); print(os.environ.get('LD_LIBRARY_PATH'))"]
+    show = ["/usr/bin/env"]  # a system program: it starts without LD_LIBRARY_PATH on every machine
     monkeypatch.setenv("LD_LIBRARY_PATH", os.environ.get("LD_LIBRARY_PATH", "/opt/champion-test/lib"))
     monkeypatch.setenv("DATABRICKS_TOKEN", "dapi-secret")
     monkeypatch.setenv("CHAMPION_EXTRA", "x")
     config, _ = make(tmp_path, {"coder": {"checks": {"env": show}}})
     out = run_named_check(ctx(config, approver=yes([])), "env")
-    assert os.environ["LD_LIBRARY_PATH"] in out and "DATABRICKS_TOKEN" not in out and "CHAMPION_EXTRA" not in out
+    assert out.endswith("Check 'env': PASSED")
+    assert f"LD_LIBRARY_PATH={os.environ['LD_LIBRARY_PATH']}" in out
+    assert "DATABRICKS_TOKEN" not in out and "dapi-secret" not in out and "CHAMPION_EXTRA" not in out
     config, _ = make(tmp_path / "none", {"coder": {"checks": {"env": show}, "check_env": []}})
     out = run_named_check(ctx(config, approver=yes([])), "env")
-    assert "['HOME', 'LANG', 'LC_ALL', 'PATH', 'TZ']\nNone\n" in out  # only the fixed clean environment
+    assert out.endswith("Check 'env': PASSED") and "PATH=/usr/bin:/bin" in out and "HOME=" in out
+    assert "LD_LIBRARY_PATH=" not in out and "CHAMPION_EXTRA" not in out  # only the fixed clean environment
     for bad in (["DATABRICKS_TOKEN"], ["PATH"], ["LD_PRELOAD"], ["1X"], "LD_LIBRARY_PATH"):
         with pytest.raises(ConfigError, match="coder.check_env"):
             make(tmp_path / "bad", {"coder": {"check_env": bad}})
