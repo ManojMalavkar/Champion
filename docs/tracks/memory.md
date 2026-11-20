@@ -15,7 +15,7 @@ Today each request sends the last `orchestration.history_turns` turns as raw mes
 
 Model and program structure items hold a short summary plus the file path and SHA-256, so a changed file shows the item is out of date; the T6 index stays the real source.
 
-## Who saves (P.8 decision 10; proposed split, confirm in T8.4)
+## Who saves (P.8 decision 10; confirmed by the user, 20 Nov 2026)
 
 | Kind | Saved by |
 | --- | --- |
@@ -31,7 +31,7 @@ Every item records its source (user, agent, file) and date. Secrets are never sa
 - [ ] T8.1 Store: item format, the two roots, read, write, edit, forget; secret filter. Verify: tests for each store and for a refused secret.
 - [ ] T8.2 Compaction: summary of older turns (decisions, current task, previous work) with the configured model. Verify: fake-model test keeps decisions from turn 1 after 20 turns.
 - [ ] T8.3 Retrieval: relevant items per question (keywords first; embeddings after M1).
-- [ ] T8.4 Save rules from the table above.
+- [ ] T8.4 Save rules from the table above (split confirmed). Verify: agent-saved kinds appear in the turn summary; proposed kinds are saved only after a yes; a no saves nothing.
 - [ ] T8.5 `/memory` command logic: list, show, add, edit, forget, project.
 - [ ] T8.6 Integration through M6 (core request CR).
 - [ ] T8.7 SOPs as skills (needs T5).

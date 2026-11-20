@@ -1692,16 +1692,16 @@ M0 is one step. M1 and M2 can be built at the same time by two threads on `main`
 * T6.3 Numbering ranges per include file and the PART -> SECTION -> MAT graph.
 * T6.4 Compare two iterations of a model (which includes, parts, materials changed).
 * T6.5 Keyword-aware edits (former L3) on the streaming patch engine of `file_edit`, with diff, approval and undo.
+* Verify: outline and find on a model over 1 GB; the second question uses the cached index.
 
 **T8 Memory (`track/memory`)** - library `champion/memory/`, tests `tests/memory/`; details in `docs/tracks/memory.md`. Today each request sends the last `orchestration.history_turns` turns as raw messages and nothing is kept after the chat ends.
 * T8.1 Store: memory items (kind, text, source, date, scope) in separate places: conversation memory per user (`~/.champion/memory/`), project memory in the folder the user selects (`/memory project <folder>`); nothing project-related is saved while no project is selected. Verify: items written, read, edited, forgotten; secrets refused.
 * T8.2 Compaction: summary of older turns (decisions, current task, previous work) with the configured model; fake-model tests.
 * T8.3 Retrieval: items relevant to a question (keywords first; embeddings after M1).
-* T8.4 Save rules: what the agent saves by itself (and says so), what it proposes and the user confirms, what only the user adds (P.8 decision 10).
+* T8.4 Save rules as confirmed in P.8 decision 10: what the agent saves by itself (and says so), what it proposes and the user confirms, what the user adds.
 * T8.5 `/memory` command logic (list, show, add, edit, forget, project).
 * T8.6 Integration through M6 (core request).
 * T8.7 SOPs as skills (needs T5; P.8 decision 11, may change).
-* Verify: outline and find on a model over 1 GB; the second question uses the cached index.
 
 **T7 Core (`main`)**: M0-M5 (P.3), core requests (P.6), fixes from all tracks, then L6 integration (all agents enabled together, routing tests with one question per agent and mixed questions, cross-agent skills) and L7 hardening.
 
@@ -1809,7 +1809,7 @@ Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and k
 7. Knowledge databases: JSONL sources committed, `vector_db/` built locally and in `.gitignore`. Decided.
 8. HPC model access: `hpc_agent` uses Champion's configured model; the old agent's certificates are not used. Decided.
 9. Memory locations: memory is not kept in one place; it is divided into conversation memory, project memory and SOPs. The project memory folder is selected by the user. Decided (user, 20 Nov 2026).
-10. Who saves memory: partly the user, partly the agent. Decided (user, 20 Nov 2026); the exact split is proposed in `docs/tracks/memory.md` and confirmed in T8.4.
+10. Who saves memory: partly the user, partly the agent. Split confirmed by the user (20 Nov 2026), table in `docs/tracks/memory.md`: the agent saves current task, previous work, conversation summaries and model/program structure by itself and says so in the turn summary; decisions and engineering lessons are proposed by the agent and confirmed by the user; preferences are added by the user or proposed and confirmed; the user can add, edit and forget anything with `/memory`. Decided.
 11. SOPs are stored as skills (T5). Decided for now; the user is not fully sure and it may change (user, 20 Nov 2026).
 
 ## Full roadmap (after the demo)
