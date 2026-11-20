@@ -8,7 +8,7 @@ The full design (access levels, large-file handling, code review and execution, 
 * Framework: OpenAI Agents SDK (`openai-agents`) only; specialists are used as tools (`Agent.as_tool`), never handoffs. No adapter layer for other frameworks (LangGraph, CrewAI): the safety core (config, levels, blocked paths, tool rules, audit) and the tool logic are plain Python, so only the agent wiring and the runtime would change if needed.
 * Provider: `llm.provider: databricks` (the project setup in `config/config.example.yaml`): models `system.ai.*` through the workspace Unity AI Gateway (`llm.base_url` = `https://<workspace>/ai-gateway/mlflow/v1`, Chat Completions API, so the runtime uses `OpenAIChatCompletionsModel`), token from `DATABRICKS_TOKEN` (`llm.api_key_env`) or `.env`. Legacy `/serving-endpoints` are refused by config validation; SDK tracing must stay off. `llm.provider: openai` (Responses API, `OPENAI_API_KEY`) remains the built-in default.
 * UI: Textual terminal UI (fast demo step 6; earlier steps use a plain command line).
-* Build order: fast demo order (below) first, as soon as possible for the interview; everything on `main` until the demo; the rest of the roadmap follows after the demo.
+* Build order: from 20 Nov 2026 parallel tracks (see "Parallel development"): one branch and Git folder per agent track, shared foundations on `main` first (M0); before that, fast demo order on `main`.
 * Access levels chosen by the user: 1.1 working dir read only, 1.2 working dir read/write, 2.1 working dir + outside read only, 2.2 working dir + outside read/write, Custom. Secret files, symlinks, private keys, `/proc`, `/sys`, `/dev` always blocked.
 * Material data protection: not used.
 * Large file: 100 MiB or more (`pydyna.large_file_bytes`); hard limit `pydyna.max_model_bytes` (8 GiB, to be confirmed).
@@ -1606,6 +1606,126 @@ Verify: outline and find on a model over 1 GB; a second question on the same mod
 ### Demo ready
 REPORT.md demo script final (about 10 minutes); full run on the Linux machine with the real key and real files; user verified.
 - [ ] Not started
+
+## Parallel development (from 20 Nov 2026)
+
+Decided with the user on 20 Nov 2026: after step 4d, several agents are built at the same time instead of one step after another. This section replaces "everything on `main` until the demo" and the phase B rule "at most two branches". Fast demo steps 5 (PyDyna knowledge), 6 (TUI) and 7 (large-model reading) move into the tracks below; L1-L5 move to the tracks or to `main` as listed. Status: plan proposed, open decisions at the end of this section.
+
+### P.1 Tracks
+
+| # | Track | Branch | Git folder (Databricks) / worktree (Linux) | What |
+| --- | --- | --- | --- | --- |
+| T1 | PyDyna | `track/pydyna` | `Champion-pydyna` | `pydyna_agent` group with 3 sub-agents: Keyword Lookup, PyDyna Code, PyDPF-Post |
+| T2 | HPC | `track/hpc` | `Champion-hpc` | `hpc_agent`: Slurm jobs through `mjob` (status, details, downloads, kill, delete, submit, FEMZIP) |
+| T3 | ANSA/META | `track/ansa-meta` | `Champion-ansa-meta` | `ansa_meta_agent` group with 2 sub-agents: Code (writes ANSA/META Python scripts) and Task (runs tested scripts in batch to extract information or do jobs) |
+| T4 | PRIMER | `track/primer` | `Champion-primer` | `primer_agent`: Oasys PRIMER JavaScript knowledge, script writing, PRIMER batch tasks |
+| T5 | Skills | `track/skills` | `Champion-skills` | Skills framework (former L1), skill authoring rules and checks, first shared skills |
+| T6 | Full vehicle model | `track/vehicle-model` | `Champion-vehicle` | Shared LS-DYNA library for 1-8 GB models (former step 7 and L3) and a `model_agent` for whole-model questions |
+| T7 | Core and fixes | `main` | `Champion-git` | Shared foundations every track needs (P.3), the TUI (former step 6), fixes reported by tracks, integration (L6) and hardening (L7) |
+
+Each Databricks Git folder has one branch checked out, so each track gets its own Git folder (same remote) and its own Genie Code thread; on the Linux machine `git worktree add ../Champion-<track> track/<track>`. One thread works in one folder only.
+
+### P.2 Rules for parallel work
+
+* **Ownership:** a track adds files only in its own places: `champion/specialists/<track>/` (package), `champion/<track>/` for libraries (T5 `champion/skills/`, T6 `champion/lsdyna/`), `tests/<track>/`, `docs/tracks/<track>.md`, `docs/steps/<track>-NN-*.md`, `config/examples/<track>.yaml`. It never edits shared files (`champion/core/`, `policy/`, `execution/`, `tools/`, `agents/`, `chat.py`, `cli.py`, `doctor.py`, `registry.py`, `config.py`).
+* **Core requests:** when a track needs a change in a shared file, it writes a core request (CR-n: what, why, which track waits) in its track file and in P.6; the change is built on `main` (T7), merged, and the track merges `main` into its branch. A track can work around a missing core feature only with a stub inside its own package, removed when the CR lands.
+* **Plans:** PLAN.md is edited only on `main`; it keeps this overview, P.6 core requests and one status line per track. Each track's sub-steps, checkboxes and findings live in `docs/tracks/<track>.md` (the track's PLAN). REPORT.md is updated on `main` when a track merges.
+* **Step rules:** unchanged ("Rules for every step"): small runnable step, tests, walkthrough, one commit, all earlier tests pass, the user's OK before the next step of that track. Live checks: the user runs the manual list on the Linux machine.
+* **Merging:** pull request per finished sub-step group; all tests of `main` plus the track pass; the track merges `main` after every core merge (at least weekly); merge conflicts are solved on the track branch, never on `main`.
+* **Safety stays central:** every new tool has a tool-policy entry, checks paths with `check_path`, writes only through the change list or a run folder, asks through `approval.ask`, and is audited. Tracks never relax a shared rule; they ask for a CR.
+* **How many at once:** all 7 tracks can be open, but at most 3-4 are actively built at the same time (review and live-check load on the user).
+
+### P.3 Shared foundations on `main` (T7), in this order
+
+| # | Item | Needed by | Content |
+| --- | --- | --- | --- |
+| M0 | Parallel enablers (first, blocks all tracks) | all | Specialists found automatically in `champion/specialists/*/` (no edit of `registry.py`); a spec declares its config section, defaults and validation (no edit of `config.py`; the sync test reads them); `config/examples/*.yaml` fragments; sub-specialists (a group specialist offers its sub-agents as tools, depth 2 at most, tool lines and audit show `PyDyna/Keyword`, the decline and approval rules apply at every depth); `tests/<track>/` layout; `docs/tracks/` template; branches and Git folders created |
+| M1 | Knowledge layer (read side; former step 5 base and L5 read) | T1, T3, T4 | Open a `<agent>.knowledge_root` (`vector_db/` Chroma, `knowledge-base/` JSONL), search and lookup tool factory with sources and distances, same embedding model as the existing databases, `champion doctor` checks, read only |
+| M2 | Program tools (step 4c generalised) | T2, T3, T4, T6 | Trusted external programs and scripts (`mjob`, ANSA/META/PRIMER batch, user scripts) declared in a manifest: path and SHA-256, argument template with typed slots, class (read, edit, delete, remote), environment (licences, modules), time limit, approval rule; refused if the file changed |
+| M3 | Code execution framework (former L4) | T1, T3, T4 | Generated script -> static check (Python AST; JavaScript rules for PRIMER) -> reviewer agent (policy and intent) -> user approval bound to the code hash -> backend run in a run folder under an edit folder; backends: host Python (PyDyna, PyDPF-Post), ANSA batch, META batch, PRIMER batch; outputs and logs captured |
+| M4 | Textual TUI (former step 6) | demo | As planned in step 6; panels come from the registry, so new agents appear without TUI changes |
+| M5 | MCP framework (former L2) | later | As planned in L2 |
+
+M0 is one step. M1 and M2 can be built at the same time by two threads on `main` only if they touch different files; otherwise M1 then M2. M3 follows M2.
+
+### P.4 Track plans (sub-steps; details go into `docs/tracks/<track>.md`)
+
+**T1 PyDyna (`track/pydyna`)** - one group `pydyna_agent` (one entry for the orchestrator) with sub-agents; tools ported from PyDyna_Agent (read only there).
+* T1.1 Keyword Lookup agent (needs M1): `search_keyword`, `lookup_keyword` (cards and fields), `get_material_model`, `get_contact_type`, `validate_keyword_params`. Verify: fields of `*MAT_024` with sources.
+* T1.2 PyDyna Code agent (needs M1): `search_pydyna_api`, code templates; writes PyDyna (`ansys-dyna-core`) scripts into the working folder (no run yet). Verify: a deck-building script that passes `code_check`.
+* T1.3 PyDPF-Post agent (needs M1): `pydpf_post` collection, d3plot/binout post-processing scripts. Verify: a script for a section-force or energy curve.
+* T1.4 Run with approval (needs M3): Code and PyDPF-Post scripts run on the host Python backend in a run folder. Verify: script reviewed, approved, run, output listed.
+* T1.5 Model questions (needs T6): counts, materials and parts of a real model through the LS-DYNA library.
+* T1.6 Skills (needs T5): PyDyna and DPF code templates as skills.
+
+**T2 HPC (`track/hpc`)** - Slurm through `mjob` only (no direct `ssh`, `sbatch`, `scancel`); `mjob` is a trusted program (M2).
+* T2.1 Read only (needs M2): parse `*_jobid` files (pure Python), `status`, `jobstat`, `details`, `list_completed_job_files`. Verify: status and details of a running and a finished job.
+* T2.2 Downloads (class edit, target inside an edit folder, listed in `/changes`): `download_completed`, `download_running`, `download_inf_dir`.
+* T2.3 Stop jobs (approval every time, own jobs only): `kill` (graceful D3KIL), `delete` (scancel).
+* T2.4 Submit (approval every time, shows CPUs, master file, template): `submit`.
+* T2.5 FEMZIP conversions; skill `hpc.job_submission` (needs T5).
+
+**T3 ANSA/META (`track/ansa-meta`)** - group `ansa_meta_agent` with two sub-agents; knowledge from ANSA-META_CodeRAG (read only there).
+* T3.1 Knowledge (needs M1): `ansa_api`, `meta_api` collections and the knowledge graph as search tools.
+* T3.2 Code agent: writes ANSA and META Python scripts; static check for ANSA/META scripts (forbidden modules and calls). Verify: script passes the check, no run.
+* T3.3 Batch backends (needs M2/M3): ANSA batch (`-nogui -execscript`), META batch; licence environment.
+* T3.4 Task agent: runs tested scripts (skills) to extract information (parts, thickness, mass, materials; META curves and reports) into a run folder. Verify: part list of a small model.
+* T3.5 Skills: ANSA/META script templates (needs T5).
+
+**T4 PRIMER (`track/primer`)**
+* T4.1 Knowledge (needs M1): `primer_js` collection (to be built if it does not exist).
+* T4.2 Code agent: writes PRIMER JavaScript; JavaScript static check.
+* T4.3 PRIMER batch backend (needs M2/M3) and tasks: model check, mass, contacts report.
+* T4.4 Reuse the LS-DYNA library (needs T6); skills (needs T5).
+
+**T5 Skills (`track/skills`)** - framework first, because T1-T4 and T6 write their skills on top of it.
+* T5.1 Framework (former L1): skill folder (`skill.yaml`, `instructions.md`, optional `snippets/`, `helpers.py`), registry, `list_skills` and `load_skill` offered only to the specialists named in the skill, loaded on demand; skills never run anything themselves.
+* T5.2 Skill checks: `champion skills list/check` (format, names, every snippet compiles; snippets with tests run in pytest).
+* T5.3 First skills: `cae.crash_loadcase` (ported from mChampion), `linux.disk_analysis`.
+* T5.4 Authoring guide for the other tracks (`docs/skills.md`).
+
+**T6 Full vehicle model (`track/vehicle-model`)** - pure Python library `champion/lsdyna/`, reused by T1 and T4; ideas from crash-simulation-agent (keyword scanner, entity graph, numbering ranges), read only there.
+* T6.1 Streaming keyword index for files of 100 MiB or more, cached beside the model (management keywords only, never 20M nodes or elements); include-file tree.
+* T6.2 Tools on `model_agent`: `model_outline`, `model_find`, `model_read_range`; hard limit `pydyna.max_model_bytes`.
+* T6.3 Numbering ranges per include file and the PART -> SECTION -> MAT graph.
+* T6.4 Compare two iterations of a model (which includes, parts, materials changed).
+* T6.5 Keyword-aware edits (former L3) on the streaming patch engine of `file_edit`, with diff, approval and undo.
+* Verify: outline and find on a model over 1 GB; the second question uses the cached index.
+
+**T7 Core (`main`)**: M0-M5 (P.3), core requests (P.6), fixes from all tracks, then L6 integration (all agents enabled together, routing tests with one question per agent and mixed questions, cross-agent skills) and L7 hardening.
+
+### P.5 Order (waves)
+
+| Wave | `main` (T7) | Tracks that can run |
+| --- | --- | --- |
+| 0 | M0 parallel enablers; create branches and Git folders | none (all wait for M0) |
+| 1 | M1 knowledge layer, M2 program tools | T5.1-T5.2 skills framework; T6.1-T6.2 index and model tools |
+| 2 | M3 code execution | T1.1-T1.3; T2.1-T2.4; T3.1-T3.2; T4.1-T4.2; T5.3-T5.4; T6.3-T6.4 |
+| 3 | M4 TUI | T1.4-T1.6; T2.5; T3.3-T3.5; T4.3-T4.4; T6.5 |
+| 4 | L6 integration, L7 hardening, demo script | fixes only |
+
+### P.6 Core requests (CR)
+
+None yet. Format: `CR-n (track, date): what - why - status`.
+
+### P.7 Track status
+
+* T1 PyDyna: not started (waits for M0, M1)
+* T2 HPC: not started (waits for M0, M2)
+* T3 ANSA/META: not started (waits for M0, M1)
+* T4 PRIMER: not started (waits for M0, M1)
+* T5 Skills: not started (waits for M0)
+* T6 Full vehicle model: not started (waits for M0)
+* T7 Core: next is M0
+
+### P.8 Open decisions for the parallel plan
+
+1. PyDyna: one group `pydyna_agent` with 3 sub-agents (proposed, keeps the orchestrator's list short) or 3 top-level agents.
+2. ANSA/META: one group with Code and Task sub-agents (proposed) or ANSA and META as separate agents.
+3. Knowledge roots on the Linux machine for PyDyna, ANSA/META and PRIMER; whether `pydpf_post` and `primer_js` collections exist; which embedding model the existing Chroma databases use (queries must use the same one).
+4. HPC: confirm `mjob` only (Slurm, from the mjob script) and its path; whether submit is allowed at all in the first version.
+5. Executables and licence environment for ANSA, META and PRIMER batch; whether a DPF server is available for PyDPF-Post.
+6. Which tracks start first after M0 (proposed: T5 skills and T6 vehicle model, they need nothing else), and whether the interview demo still sets the priority.
 
 ## Full roadmap (after the demo)
 
