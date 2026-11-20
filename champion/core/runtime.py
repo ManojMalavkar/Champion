@@ -139,8 +139,23 @@ class ChampionRuntime:
 
     def new_session(self) -> None:
         self.session = SQLiteSession(f"champion-{uuid.uuid4().hex}")  # in memory only
+        self.notes: list[str] = []
+
+    def add_note(self, note: str) -> None:
+        """Tell the model about something the user did outside the conversation (for
+        example /undo), so it does not rely on file contents from earlier turns."""
+        self.notes.append(note)
+
+    def pending_notes(self) -> str:
+        if not self.notes:
+            return ""
+        lines = "\n".join(f"- {note}" for note in self.notes)
+        self.notes = []
+        return ("[Note from the Champion chat, not typed by the user: since the last answer\n"
+                f"{lines}\nEarlier file contents, values and diffs in this conversation may be out of date.]\n\n")
 
     async def ask(self, text: str, on_tool_event: Callable[[ToolEvent], None] | None = None) -> TurnResult:
+        text = self.pending_notes() + text
         recorder = ToolEventRecorder(on_tool_event)
         self.context.recorder = recorder  # specialists' nested tool calls report here
         try:

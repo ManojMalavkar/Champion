@@ -44,7 +44,7 @@ HELP = """Commands:
   /access        show the per-folder access list (/access help for add, set, remove, save ...)
   /audit         last tool calls of this chat (from the audit log)
   /changes       files changed in this session, newest first
-  /undo          undo the last tool call's changes (file_edit, files_organize)
+  /undo          undo the last tool call's changes (file tools: edit, create, write, change set, organize)
   /undo N        undo change number N
   /new           start a new conversation (forget history)
   /usage         tokens used in this chat
@@ -143,9 +143,14 @@ def undo_command(runtime: ChampionRuntime, argument: str) -> str:
             return "Use /undo or /undo N (N = number from /changes)"
         number = int(argument.lstrip("#"))
     try:
-        return undo(runtime.context, number)
+        report = undo(runtime.context, number)
     except (ToolError, PolicyDenied) as exc:
         return f"Undo refused: {exc}"
+    note = getattr(runtime, "add_note", None)
+    details = [line.strip() for line in report.splitlines()[1:] if line.strip()]
+    if callable(note) and report.startswith("Undo:") and details:
+        note("the user typed /undo; these changes were taken back on disk: " + "; ".join(details))
+    return report
 
 
 async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], None],

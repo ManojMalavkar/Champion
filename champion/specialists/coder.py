@@ -51,9 +51,11 @@ Work in this order:
    Use dry_run first when the change is large or when the user asked to see it first.
 5. If a tool says the file changed since it was read, read it again and rebuild that edit. If an
    anchor or old text is not found or not unique, read that part again; never guess.
-6. Check: code_check on every changed Python, JSON, YAML or TOML file. If the user configured
-   checks (run_check, for example "tests"), run the relevant one when the task asks for tests
-   or verification. Fix failures you caused, at most twice; then report them.
+6. Check: code_check on every changed Python, JSON, YAML or TOML file. When the task asks to
+   run tests or checks, call run_check with the name (for example "tests"); its result lists
+   the configured names. If none are configured, report that the user can add them under
+   `coder.checks` in config.yaml; do not look for other ways to run code. Fix failures you
+   caused, at most twice; then report them.
 7. Report to Champion: the changed files and what changed in each, the check results (passed,
    failed, not run and why), the change numbers, and that /undo takes the change back.
 

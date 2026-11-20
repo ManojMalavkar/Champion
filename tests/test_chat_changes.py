@@ -85,3 +85,20 @@ def test_noninteractive_question_refuses_deletes(setup):
     assert asyncio.run(answer(runtime, "delete old.k", lines.append))
     assert any("needs the user's approval, which is not possible here" in line for line in lines)
     assert (work / "old.k").exists() and runtime.context.approver is None
+
+
+def test_undo_is_told_to_the_model_once(setup):
+    """Local 4d check: after /undo the model still believed the edited values."""
+    config, work = setup
+    runtime = runtime_for(config, [
+        tool_call("file_edit", {"path": "main.k", "old_text": "210000.0", "new_text": "200000.0",
+                                "expected_sha256": hashlib.sha256(MODEL.encode()).hexdigest()}), text("done"),
+        text("E is 210000 again"), text("ok"),
+    ])
+    drive(runtime, ["change E to 200000", "/undo", "/undo", "what is E now?", "thanks"])
+    inputs = [str(call["input"]) for call in runtime.model.calls]
+    assert "the user typed /undo" not in inputs[1]
+    assert "the user typed /undo" in inputs[2] and f"{work / 'main.k'} restored" in inputs[2]
+    assert inputs[2].count("the user typed /undo") == 1  # the refused second /undo adds nothing
+    assert inputs[3].count("the user typed /undo") == 1  # kept in history, not added again
+    assert (work / "main.k").read_text() == MODEL
