@@ -407,6 +407,19 @@ def test_a_declined_request_is_not_asked_again_in_the_same_turn(tmp_path):
     assert len(asked) == 2
 
 
+def test_a_no_ends_the_turn_with_a_fixed_answer(tmp_path):
+    """Local 4d check: after a no the model called the Coder again, then claimed the prompt "did not
+    come through". Now the Coder and the orchestrator stop at once; the model is not called again
+    (FakeModel has no output left and would fail)."""
+    config, work = make(tmp_path, {"coder": {"checks": {"tests": ["/usr/bin/true"]}}})
+    outputs = [tool_call("coder_agent", {"input": "run the tests"}, call_id="o1"),
+               tool_call("run_check", {"name": "tests"}, call_id="s1")]
+    runtime, out, prompts = drive(config, outputs, ["Run the tests", "n"])
+    assert prompts.count("Approve? [y/N] ") == 1
+    assert "Not done: you answered no at the approval prompt, so nothing was run or changed." in out
+    assert "no scripted output left" not in out and "Check 'tests'" not in out
+
+
 def test_run_check_runs_only_configured_checks_with_approval(tmp_path):
     checks = {"ok": [sys.executable, "-c", "print('all fine')"],
               "fails": [sys.executable, "-c", "import sys; print('boom'); sys.exit(3)"]}

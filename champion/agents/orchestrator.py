@@ -26,6 +26,7 @@ import json
 from typing import Any, Iterable
 
 from agents import Agent, FunctionTool, RunConfig, RunContextWrapper
+from agents.agent import ToolsToFinalOutputResult
 from agents.exceptions import MaxTurnsExceeded
 from agents.models.interface import Model
 
@@ -164,6 +165,19 @@ def with_configured_checks(render):
     return checks
 
 
+DECLINED_ANSWER = ("Not done: you answered no at the approval prompt, so nothing was run or changed. "
+                   "Champion stopped this request here. Ask again if you want it; the prompt will appear again.")
+
+
+def stop_after_decline(ctx: RunContextWrapper[ChampionContext], results: list) -> ToolsToFinalOutputResult:
+    """A "no" at the approval prompt ends the turn with a fixed answer; the model is not called again.
+    Local 4d check: after a no the model asked the specialist again, then claimed the prompt "did not
+    come through" and asked the user to confirm. Rules in the prompt did not stop that."""
+    if getattr(ctx.context, "declined", None):
+        return ToolsToFinalOutputResult(is_final_output=True, final_output=DECLINED_ANSWER)
+    return ToolsToFinalOutputResult(is_final_output=False)
+
+
 def build_specialist_agent(spec: SpecialistSpec, model: Model) -> Agent[ChampionContext]:
     render = with_current_level(spec.instructions.strip() + SPECIALIST_RULES)
     if "run_check" in spec.tool_names:
@@ -173,6 +187,7 @@ def build_specialist_agent(spec: SpecialistSpec, model: Model) -> Agent[Champion
         instructions=render,
         tools=list(spec.tools),
         model=model,
+        tool_use_behavior=stop_after_decline,
     )
 
 
@@ -248,4 +263,5 @@ def build_orchestrator(model: Model, specs: Iterable[SpecialistSpec] = (),
         instructions=with_current_level(orchestrator_instructions(specs)),
         tools=[session_info, *FILE_TOOLS, *(build_specialist_tool(s, model, config) for s in specs)],
         model=model,
+        tool_use_behavior=stop_after_decline,
     )

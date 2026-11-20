@@ -7,6 +7,7 @@ import pytest
 from agents import Agent
 from fake_model import FakeModel, text, tool_call
 
+from champion.agents.orchestrator import stop_after_decline
 from champion.chat import HELP, answer, chat_loop
 from champion.core.config import load_config
 from champion.core.runtime import ChampionRuntime
@@ -32,7 +33,8 @@ def setup(tmp_path):
 def runtime_for(config, outputs, level="1.2"):
     model = FakeModel(outputs)
     return ChampionRuntime(config, model=model, audit=AuditLog(), level=level,
-                           agent_factory=lambda m: Agent(name="Champion", tools=EDIT_TOOLS + SHELL_TOOLS, model=m))
+                           agent_factory=lambda m: Agent(name="Champion", tools=EDIT_TOOLS + SHELL_TOOLS, model=m,
+                                                         tool_use_behavior=stop_after_decline))
 
 
 def drive(runtime, lines):
@@ -66,11 +68,13 @@ def test_edit_summary_changes_undo_and_new(setup):
 def test_delete_prompt_no_then_yes(setup):
     config, work = setup
     runtime = runtime_for(config, [
-        tool_call("shell_run", {"argv": ["rm", "old.k"]}, call_id="c1"), text("not deleted"),
+        # after the no the turn ends with Champion's fixed answer; the model is not called again
+        tool_call("shell_run", {"argv": ["rm", "old.k"]}, call_id="c1"),
         tool_call("shell_run", {"argv": ["rm", "old.k"]}, call_id="c2"), text("deleted"),
     ])
     out, prompts = drive(runtime, ["delete old.k", "", "delete old.k again", "y", "/changes"])
     assert prompts.count("Approve? [y/N] ") == 2
+    assert "Not done: you answered no at the approval prompt" in out
     assert "Approval needed (delete) for shell_run:" in out and "command : rm old.k" in out
     assert "not approved; nothing was run" in out and "BLOCKED: the user did not approve" in out
     assert "\n  approved" in out and not (work / "old.k").exists()
