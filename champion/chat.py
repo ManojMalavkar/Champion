@@ -22,6 +22,8 @@ edit per folder, plus everything else); see ``access_commands.py``.
 from __future__ import annotations
 
 import asyncio
+import os
+import select
 import sys
 from typing import Callable, TextIO
 
@@ -122,10 +124,46 @@ def markdown_printer(console=None) -> Callable[[str], None]:
 AnswerPrinter = Callable[[str], None]
 
 
-def make_approver(read_line: Callable[[str], str], write: Callable[[str], None]) -> Callable:
-    """y/N prompt for deletes; anything but y/yes (or no answer) is no."""
+def pending_terminal_input(stream: TextIO | None = None, settle: float = 0.05) -> str:
+    """Remove and return input already waiting on the terminal (pasted or typed ahead).
+
+    Local 4d check: a 60-line paste into the chat became 60 messages, and the line after
+    "Run the tests" answered the Approve? prompt. Not a terminal: nothing is read."""
+    stream = sys.stdin if stream is None else stream
+    try:
+        if not stream.isatty():
+            return ""
+        fd = stream.fileno()
+    except (AttributeError, ValueError, OSError):
+        return ""
+    chunks = []
+    try:
+        while select.select([fd], [], [], settle)[0]:  # the rest of a paste arrives within ms
+            data = os.read(fd, 65536)
+            if not data:
+                break
+            chunks.append(data)
+        try:
+            import termios
+            termios.tcflush(fd, termios.TCIFLUSH)  # also a half-typed line without Enter
+        except (ImportError, OSError):
+            pass
+    except (OSError, ValueError):
+        pass
+    return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def make_approver(read_line: Callable[[str], str], write: Callable[[str], None],
+                  pending: Callable[[], str] | None = None) -> Callable:
+    """y/N prompt for deletes; anything but y/yes (or no answer) is no. Input typed or pasted
+    before the prompt is discarded: only an answer typed after it counts."""
     def approve(request) -> bool:
         write(request.describe())
+        early = pending() if pending else ""
+        if early.strip():
+            lines = len(early.strip().splitlines())
+            write(f"  (ignored {lines} line(s) typed or pasted before this prompt; "
+                  "only an answer typed now counts)")
         try:
             reply = read_line("Approve? [y/N] ")
         except (EOFError, KeyboardInterrupt):
@@ -183,7 +221,10 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
 
 async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = input,
                     write: Callable[[str], None] = print,
-                    show_answer: AnswerPrinter | None = None) -> None:
+                    show_answer: AnswerPrinter | None = None,
+                    pending: Callable[[], str] | None = None) -> None:
+    if pending is None:
+        pending = pending_terminal_input if read_line is input else (lambda: "")
     specialists = ", ".join(runtime.context.specialists) or "none yet"
     write(f"Champion {__version__} - model {runtime.config.get('llm.model_id')}, "
           f"access level {runtime.context.level.describe()}, specialists: {specialists}. /help for commands.")
@@ -191,7 +232,7 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
         write(f"Warning: {problem}")
     for warning in runtime.context.access_warnings:
         write(f"Warning: {warning}")
-    runtime.context.approver = make_approver(read_line, write)
+    runtime.context.approver = make_approver(read_line, write, pending)
 
     def confirm(prompt: str) -> bool:
         try:
@@ -205,6 +246,12 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
             write("")
             break
         if not line:
+            continue
+        extra = pending().strip()
+        if extra:  # a paste: one message, and no /commands run from it
+            line = f"{line}\n{extra}"
+            write(f"  (pasted text: {len(line.splitlines())} lines taken as one message)")
+            await answer(runtime, line, write, show_answer)
             continue
         if line in ("/exit", "/quit"):
             break

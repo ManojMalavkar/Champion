@@ -8,7 +8,7 @@ from agents import Agent
 from fake_model import FakeModel, text, tool_call
 
 from champion.agents.orchestrator import stop_after_decline
-from champion.chat import HELP, answer, chat_loop
+from champion.chat import HELP, answer, chat_loop, pending_terminal_input
 from champion.core.config import load_config
 from champion.core.runtime import ChampionRuntime
 from champion.storage.audit import AuditLog
@@ -106,3 +106,52 @@ def test_undo_is_told_to_the_model_once(setup):
     assert inputs[2].count("the user typed /undo") == 1  # the refused second /undo adds nothing
     assert inputs[3].count("the user typed /undo") == 1  # kept in history, not added again
     assert (work / "main.k").read_text() == MODEL
+
+
+def drive_with_pending(runtime, lines, early):
+    out, prompts, queue, early = [], [], list(lines), iter(early)
+
+    def read_line(prompt):
+        prompts.append(prompt)
+        if not queue:
+            raise EOFError
+        return queue.pop(0)
+    asyncio.run(chat_loop(runtime, read_line, out.append, pending=lambda: next(early, "")))
+    return "\n".join(out), prompts
+
+
+def test_input_pasted_before_the_approval_prompt_never_answers_it(setup):
+    """Local 4d check: in a 60-line paste the line after "Run the tests" answered Approve?.
+    A pasted y must never approve; only the answer typed after the prompt counts."""
+    config, work = setup
+    runtime = runtime_for(config, [tool_call("shell_run", {"argv": ["rm", "old.k"]}, call_id="c1")])
+    # nothing waits after the chat line; "y" and "yes" were pasted and wait before the prompt
+    out, prompts = drive_with_pending(runtime, ["delete old.k", "n"], ["", "y\nyes\n"])
+    assert "(ignored 2 line(s) typed or pasted before this prompt; only an answer typed now counts)" in out
+    assert "not approved; nothing was run" in out and (work / "old.k").exists()
+    assert prompts.count("Approve? [y/N] ") == 1
+
+
+def test_a_paste_is_one_message_and_runs_no_commands(setup):
+    """Local 4d check: each pasted line was a message (about 45 model calls)."""
+    config, work = setup
+    runtime = runtime_for(config, [text("one answer")])  # a second model call would fail
+    out, prompts = drive_with_pending(runtime, ["first line"], ["/new\n/exit\nsecond line\n"])
+    assert "(pasted text: 4 lines taken as one message)" in out and "one answer" in out
+    assert prompts == ["you> ", "you> "]  # /exit inside the paste did not end the chat
+
+
+def test_pending_terminal_input_reads_a_paste_from_a_real_terminal():
+    import io
+    import os
+    import pty
+
+    assert pending_terminal_input(io.StringIO("y\n")) == ""  # not a terminal: nothing is read
+    master, slave = pty.openpty()
+    try:
+        with open(slave, "r", closefd=True) as stream:
+            os.write(master, b"y\nsecond\n")
+            assert pending_terminal_input(stream, settle=0.2).splitlines() == ["y", "second"]
+            assert pending_terminal_input(stream) == ""
+    finally:
+        os.close(master)
