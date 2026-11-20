@@ -1622,6 +1622,7 @@ Decided with the user on 20 Nov 2026: after step 4d, several agents are built at
 | T5 | Skills | `track/skills` | `Champion-skills` | Skills framework (former L1), skill authoring rules and checks, first shared skills |
 | T6 | Full vehicle model | `track/vehicle-model` | `Champion-vehicle` | Shared LS-DYNA library for 1-8 GB models (former step 7 and L3) and a `model_agent` for whole-model questions |
 | T7 | Core and fixes | `main` | `Champion-git` | Shared foundations every track needs (P.3), the TUI (former step 6), fixes reported by tracks, integration (L6) and hardening (L7) |
+| T8 | Memory | `track/memory` | `Champion-memory` | Memory library `champion/memory/`: conversation memory (decisions, preferences, previous work, current task), project memory in a folder the user selects (decisions, engineering lessons, model and program structure), compaction of older turns, save rules (partly user, partly agent), retrieval; SOPs as skills (T5). Hooked into the chat by M6 |
 
 Each Databricks Git folder has one branch checked out, so each track gets its own Git folder (same remote) and its own Genie Code thread; on the Linux machine `git worktree add ../Champion-<track> track/<track>`. One thread works in one folder only.
 
@@ -1645,6 +1646,7 @@ Each Databricks Git folder has one branch checked out, so each track gets its ow
 | M3 | Code execution framework (former L4) | T1, T3, T4 | Generated script -> static check (Python AST; JavaScript rules for PRIMER) -> reviewer agent (policy and intent) -> user approval bound to the code hash -> backend run in a run folder under an edit folder; backends: host Python (PyDyna, PyDPF-Post), ANSA batch, META batch, PRIMER batch; outputs and logs captured |
 | M4 | Textual TUI (former step 6) | demo | As planned in step 6; panels come from the registry, so new agents appear without TUI changes |
 | M5 | MCP framework (former L2) | later | As planned in L2 |
+| M6 | Memory hook (CR of T8) | T8 | Runtime: older turns compacted into a summary instead of dropped (`orchestration.history_turns` stays the number of raw turns); relevant memory items added to the orchestrator's instructions; memory tools for the orchestrator; `/memory` commands in the chat; memory files go through the access rules. Built after T8.1-T8.3 exist; independent of M1-M3 |
 
 M0 is one step. M1 and M2 can be built at the same time by two threads on `main` only if they touch different files; otherwise M1 then M2. M3 follows M2.
 
@@ -1690,6 +1692,15 @@ M0 is one step. M1 and M2 can be built at the same time by two threads on `main`
 * T6.3 Numbering ranges per include file and the PART -> SECTION -> MAT graph.
 * T6.4 Compare two iterations of a model (which includes, parts, materials changed).
 * T6.5 Keyword-aware edits (former L3) on the streaming patch engine of `file_edit`, with diff, approval and undo.
+
+**T8 Memory (`track/memory`)** - library `champion/memory/`, tests `tests/memory/`; details in `docs/tracks/memory.md`. Today each request sends the last `orchestration.history_turns` turns as raw messages and nothing is kept after the chat ends.
+* T8.1 Store: memory items (kind, text, source, date, scope) in separate places: conversation memory per user (`~/.champion/memory/`), project memory in the folder the user selects (`/memory project <folder>`); nothing project-related is saved while no project is selected. Verify: items written, read, edited, forgotten; secrets refused.
+* T8.2 Compaction: summary of older turns (decisions, current task, previous work) with the configured model; fake-model tests.
+* T8.3 Retrieval: items relevant to a question (keywords first; embeddings after M1).
+* T8.4 Save rules: what the agent saves by itself (and says so), what it proposes and the user confirms, what only the user adds (P.8 decision 10).
+* T8.5 `/memory` command logic (list, show, add, edit, forget, project).
+* T8.6 Integration through M6 (core request).
+* T8.7 SOPs as skills (needs T5; P.8 decision 11, may change).
 * Verify: outline and find on a model over 1 GB; the second question uses the cached index.
 
 **T7 Core (`main`)**: M0-M5 (P.3), core requests (P.6), fixes from all tracks, then L6 integration (all agents enabled together, routing tests with one question per agent and mixed questions, cross-agent skills) and L7 hardening.
@@ -1773,7 +1784,8 @@ None yet. Format: `CR-n (track, date): what - why - status`.
 * T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
 * T5 Skills: branch created; can start. Plan: `docs/tracks/skills.md`
 * T6 Full vehicle model: branch created; can start. Plan: `docs/tracks/vehicle-model.md`
-* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); next M1 and M2
+* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); next M1 and M2; M6 after T8.1-T8.3
+* T8 Memory: branch created; T8.1-T8.5 can start (library and tests only). Plan: `docs/tracks/memory.md`
 
 #### M0 status (built 20 Nov 2026)
 - [x] Specialists found in `champion/specialists/` (modules and packages; broken packages reported, Champion still starts); `registry.py` names no specialist.
@@ -1796,6 +1808,9 @@ Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and k
 6. The interview demo no longer sets the priority. Start order after M0: T5 and T6 first (they need nothing else). Decided (user confirmed, 20 Nov 2026).
 7. Knowledge databases: JSONL sources committed, `vector_db/` built locally and in `.gitignore`. Decided.
 8. HPC model access: `hpc_agent` uses Champion's configured model; the old agent's certificates are not used. Decided.
+9. Memory locations: memory is not kept in one place; it is divided into conversation memory, project memory and SOPs. The project memory folder is selected by the user. Decided (user, 20 Nov 2026).
+10. Who saves memory: partly the user, partly the agent. Decided (user, 20 Nov 2026); the exact split is proposed in `docs/tracks/memory.md` and confirmed in T8.4.
+11. SOPs are stored as skills (T5). Decided for now; the user is not fully sure and it may change (user, 20 Nov 2026).
 
 ## Full roadmap (after the demo)
 

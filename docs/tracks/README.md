@@ -10,6 +10,7 @@ One file per track: its sub-steps with checkboxes, decisions, findings and live-
 | T4 PRIMER | [primer.md](primer.md) | `track/primer` | `champion/specialists/primer/` |
 | T5 Skills | [skills.md](skills.md) | `track/skills` | `champion/skills/` |
 | T6 Full vehicle model | [vehicle-model.md](vehicle-model.md) | `track/vehicle-model` | `champion/lsdyna/`, `champion/specialists/model/` |
+| T8 Memory | [memory.md](memory.md) | `track/memory` | `champion/memory/` |
 
 ## Rules (PLAN.md P.2, short)
 
