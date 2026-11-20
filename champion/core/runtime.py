@@ -158,6 +158,7 @@ class ChampionRuntime:
         text = self.pending_notes() + text
         recorder = ToolEventRecorder(on_tool_event)
         self.context.recorder = recorder  # specialists' nested tool calls report here
+        self.context.declined = set()  # a "no" holds for the rest of this turn
         try:
             result = await Runner.run(
                 self.agent,

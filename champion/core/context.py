@@ -47,6 +47,7 @@ class ChampionContext:
     specialists: list[str] = field(default_factory=list)  # tool names of the offered specialists
     recorder: Any = None  # ToolEventRecorder of the running turn (None between turns)
     approver: Any = None  # callable(ApprovalRequest) -> bool; None = nobody can approve (non-interactive)
+    declined: set[str] = field(default_factory=set)  # fingerprints the user said no to in this turn
     access_file: Path | None = None  # where /access save writes; None = saving off
     access_warnings: list[str] = field(default_factory=list)
 

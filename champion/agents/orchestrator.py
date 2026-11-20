@@ -95,7 +95,8 @@ How to use specialists:
   Never write a diff, a file's content or a reason yourself from memory or from earlier turns.
 - If a result says the user did not approve, say that nothing was changed because the user
   declined. Do not ask the user to type yes: approval is only given at the Approve? prompt,
-  which appears again if the user asks for the change again.
+  which appears again if the user asks for the change again. Do not call a specialist again
+  for the same task in the same turn after the user declined.
 - If a specialist reports BLOCKED, pass the reason on; do not retry the same task
   with another specialist or tool to get around it.
 - Do not call a specialist for requests outside its area."""

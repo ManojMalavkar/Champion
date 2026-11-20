@@ -83,11 +83,20 @@ def ask(context: ChampionContext, request: ApprovalRequest) -> None:
     if context.approver is None:
         raise PolicyDenied(f"this {request.command_class} command needs the user's approval, which is not possible "
                            "here (non-interactive mode); nothing was run")
+    declined = getattr(context, "declined", None)
+    if declined is not None and request.fingerprint in declined:
+        # Local 4d check: after a no, the orchestrator called the specialist again and the user was
+        # asked a second time. The same request is not asked again in the same turn.
+        raise PolicyDenied("the user already declined this exact request in this turn; it is not asked again "
+                           "and nothing was run or changed. Do not retry it. Tell the user it was not done "
+                           "because they declined")
     try:
         approved = bool(context.approver(request))
     except (EOFError, KeyboardInterrupt):
         approved = False
     if not approved:
+        if declined is not None:
+            declined.add(request.fingerprint)
         # Local 4d check: "ask the user what to do" led to "Would you like to approve?" after a no.
         raise PolicyDenied("the user did not approve this command (answered no at the approval prompt); "
                            "nothing was run or changed. Do not retry it. Tell the user it was not done because "

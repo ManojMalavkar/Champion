@@ -390,6 +390,23 @@ def test_code_check_finds_syntax_errors_and_runs_nothing(setup, tmp_path):
         check_files(ctx(config, "1.1"), [str(tmp_path / "config" / "config.yaml")])
 
 
+def test_a_declined_request_is_not_asked_again_in_the_same_turn(tmp_path):
+    """Local 4d check: after the user answered n, the orchestrator called the Coder again and the
+    same run_check prompt appeared a second time."""
+    config, work = make(tmp_path, {"coder": {"checks": {"tests": ["/usr/bin/true"]}}})
+    asked = []
+    context = ctx(config, approver=lambda request: asked.append(request) and False)
+    with pytest.raises(PolicyDenied, match="answered no at the approval prompt"):
+        run_named_check(context, "tests")
+    with pytest.raises(PolicyDenied, match="already declined this exact request in this turn"):
+        run_named_check(context, "tests")  # the retry is refused without a prompt
+    assert len(asked) == 1
+    context.declined = set()  # the next turn (ChampionRuntime.ask) asks again
+    with pytest.raises(PolicyDenied, match="answered no"):
+        run_named_check(context, "tests")
+    assert len(asked) == 2
+
+
 def test_run_check_runs_only_configured_checks_with_approval(tmp_path):
     checks = {"ok": [sys.executable, "-c", "print('all fine')"],
               "fails": [sys.executable, "-c", "import sys; print('boom'); sys.exit(3)"]}
