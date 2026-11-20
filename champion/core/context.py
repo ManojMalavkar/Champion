@@ -45,6 +45,7 @@ class ChampionContext:
     audit: "AuditLog | None" = None
     started_at: datetime = field(default_factory=lambda: datetime.now().astimezone())
     specialists: list[str] = field(default_factory=list)  # tool names of the offered specialists
+    sub_agents: dict[str, list[str]] = field(default_factory=dict)  # group tool name -> member tool names (M0)
     recorder: Any = None  # ToolEventRecorder of the running turn (None between turns)
     approver: Any = None  # callable(ApprovalRequest) -> bool; None = nobody can approve (non-interactive)
     declined: set[str] = field(default_factory=set)  # fingerprints the user said no to in this turn

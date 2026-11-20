@@ -45,6 +45,7 @@ def describe_session(context: ChampionContext) -> dict:
                                 "/access preset 1.1|1.2|2.1|2.2, /level NAME, /access save",
         "enabled_specialists": sorted(name for name, a in agents.items() if a.get("enabled", True)),
         "specialists_available_now": list(context.specialists),  # tools offered to the orchestrator
+        "sub_agents": dict(getattr(context, "sub_agents", {}) or {}),  # group -> its sub-agents (M0)
         "model": context.config.get("llm.model_id"),
     }
 

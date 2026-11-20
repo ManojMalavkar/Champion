@@ -15,6 +15,13 @@ Relative paths:
   parent of the ``config/`` folder that holds the file, or the file's own
   folder if it is not inside a ``config/`` folder.
 
+Sections of agents (step M0): a specialist package can declare its own
+top-level section (``SpecialistSpec.config_section``). ``load_config`` first
+loads the specialists, then adds each registered section's defaults, merges
+the file, resolves its path keys and runs its validator, exactly like a
+built-in section. The example values of such a section live in
+``config/examples/<section>.yaml`` (checked by ``example_fragment_problems``).
+
 The API key is never stored in the config. ``get_openai_api_key`` reads the
 configured environment variable from the environment or a ``.env`` file in the
 project root, without putting it into ``os.environ``.
@@ -27,7 +34,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import yaml
 
@@ -137,6 +144,79 @@ class ConfigError(ValueError):
     """Raised when the config file is missing, unreadable or invalid."""
 
 
+# --------------------------------------------------- sections of agents (M0)
+
+SECTION_NAME = re.compile(r"^[a-z][a-z0-9_]{1,30}$")
+
+
+@dataclass(frozen=True)
+class ConfigSection:
+    name: str
+    defaults: Mapping[str, Any] = field(hash=False)
+    validate: Callable[[Mapping[str, Any]], list[str]] | None = field(default=None, compare=False)
+    path_keys: tuple[str, ...] = ()
+    owner: str = ""  # specialist that declared it
+
+
+_SECTIONS: dict[str, ConfigSection] = {}
+
+
+def register_config_section(name: str, defaults: Mapping[str, Any], *,
+                            validate: Callable[[Mapping[str, Any]], list[str]] | None = None,
+                            path_keys: tuple[str, ...] = (), owner: str = "") -> ConfigSection:
+    """Add a top-level config section owned by an agent. Built-in sections cannot be replaced."""
+    if not SECTION_NAME.match(name or ""):
+        raise ValueError(f"config section {name!r}: use 2-31 lowercase letters, digits or _")
+    if name in DEFAULTS:
+        raise ValueError(f"config section {name} is a built-in section of Champion")
+    if not isinstance(defaults, Mapping):
+        raise ValueError(f"config section {name}: defaults must be a mapping")
+    unknown = [key for key in path_keys if key not in defaults]
+    if unknown:
+        raise ValueError(f"config section {name}: path keys not in the defaults: {', '.join(unknown)}")
+    section = ConfigSection(name, copy.deepcopy(dict(defaults)), validate, tuple(path_keys), owner)
+    existing = _SECTIONS.get(name)
+    if existing is not None and (existing.owner != owner or existing.defaults != section.defaults):
+        raise ValueError(f"config section {name} is already declared by {existing.owner or 'another agent'}")
+    _SECTIONS[name] = section
+    return section
+
+
+def unregister_config_section(name: str) -> None:
+    _SECTIONS.pop(name, None)
+
+
+def config_sections() -> list[ConfigSection]:
+    return [_SECTIONS[name] for name in sorted(_SECTIONS)]
+
+
+def _load_agent_sections() -> None:
+    """Import the specialist packages so their sections are registered (import errors are
+    reported by the registry when the specialists are selected, not here)."""
+    from champion.specialists.registry import load_builtin_specialists
+
+    load_builtin_specialists()
+
+
+def example_fragment_problems(folder: Path | None = None) -> list[str]:
+    """Every agent section has ``config/examples/<section>.yaml`` with exactly its defaults."""
+    folder = folder or project_root() / "config" / "examples"
+    problems = []
+    for section in config_sections():
+        file = folder / f"{section.name}.yaml"
+        if not file.is_file():
+            problems.append(f"{section.name}: example file {file.name} is missing")
+            continue
+        raw = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+        if raw != {section.name: section.defaults}:
+            problems.append(f"{section.name}: {file.name} must contain exactly the section's defaults")
+    known = {section.name for section in config_sections()}
+    for file in sorted(folder.glob("*.yaml")) if folder.is_dir() else []:
+        if file.stem not in known:
+            problems.append(f"{file.name}: no agent declares a config section {file.stem}")
+    return problems
+
+
 @dataclass
 class Config:
     data: dict[str, Any]
@@ -185,7 +265,11 @@ def load_config(path: str | os.PathLike | None = None, *,
     except FileNotFoundError as exc:
         raise ConfigError("Current directory no longer exists; cd to an existing directory and try again") from exc
     file = find_config_file(path, env)
+    _load_agent_sections()
+    sections = config_sections()
     data = copy.deepcopy(DEFAULTS)
+    for section in sections:
+        data[section.name] = copy.deepcopy(dict(section.defaults))
     warnings: list[str] = []
     if file is not None:
         try:
@@ -199,11 +283,27 @@ def load_config(path: str | os.PathLike | None = None, *,
     root = project_root() if file is None else _base_dir(file)
     _normalise(data)
     _resolve_paths(data, root, working_directory)
-    errors = validate(data)
+    for section in sections:
+        for key in section.path_keys:
+            data[section.name][key] = _resolve(data[section.name][key], root)
+    errors = validate(data) + _validate_sections(data, sections)
     if errors:
         where = file or "defaults"
         raise ConfigError(f"Invalid configuration ({where}):\n- " + "\n- ".join(errors))
     return Config(data=data, path=file, root=root, warnings=warnings)
+
+
+def _validate_sections(data: dict, sections: list[ConfigSection]) -> list[str]:
+    errors = []
+    for section in sections:
+        if section.validate is None:
+            continue
+        try:
+            problems = list(section.validate(data[section.name]) or [])
+        except Exception as exc:  # a broken validator must not hide the config
+            problems = [f"validator failed ({type(exc).__name__})"]
+        errors += [f"{section.name}: {problem}" for problem in problems]
+    return errors
 
 
 def _base_dir(file: Path) -> Path:

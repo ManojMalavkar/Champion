@@ -1767,13 +1767,22 @@ None yet. Format: `CR-n (track, date): what - why - status`.
 
 ### P.7 Track status
 
-* T1 PyDyna: not started (waits for M0, M1)
-* T2 HPC: not started (waits for M0, M2)
-* T3 ANSA/META: not started (waits for M0, M1)
-* T4 PRIMER: not started (waits for M0, M1)
-* T5 Skills: not started (waits for M0)
-* T6 Full vehicle model: not started (waits for M0)
-* T7 Core: next is M0
+* T1 PyDyna: branch created; not started (waits for M1). Plan: `docs/tracks/pydyna.md`
+* T2 HPC: branch created; T2.0 can start, T2.1 waits for M2. Plan: `docs/tracks/hpc.md`
+* T3 ANSA/META: branch created; not started (waits for M1). Plan: `docs/tracks/ansa-meta.md`
+* T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
+* T5 Skills: branch created; can start. Plan: `docs/tracks/skills.md`
+* T6 Full vehicle model: branch created; can start. Plan: `docs/tracks/vehicle-model.md`
+* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); next M1 and M2
+
+#### M0 status (built 20 Nov 2026)
+- [x] Specialists found in `champion/specialists/` (modules and packages; broken packages reported, Champion still starts); `registry.py` names no specialist.
+- [x] Config section per agent (`SpecialistSpec.config_section`, defaults, validator, path keys; built-in sections protected); examples in `config/examples/<section>.yaml`, checked by a test.
+- [x] Groups: `SpecialistSpec.members`, one tool for the orchestrator, members as tools of the group agent, named `Group/Member` in tool lines and audit, at most 2 levels, unique names, `agents.<member>.enabled`; a "no" in a member ends the turn.
+- [x] `tests/conftest.py` for `tests/<track>/`; `docs/tracks/` with a plan per track.
+- [x] Tests: 17 new in `tests/test_parallel_enablers.py`; 269 pass on Databricks serverless.
+- [x] Track branches `track/pydyna`, `track/hpc`, `track/ansa-meta`, `track/primer`, `track/skills`, `track/vehicle-model` created from `main` after the M0 commit.
+- [ ] Local check (user, Linux machine): `pytest -q` 269 passed; `champion chat --level 1.2` start line still `coder_agent, linux_coder_agent`; one question and one edit work as before.
 
 Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and key there are the old agent's LLM connection (GenAI gateway, mTLS). The T2 port does not use them: `hpc_agent` uses the model defined in Champion's config (`llm` section, AI Gateway) like every other agent. No certificates or keys are copied into Champion; secret files stay blocked.
 

@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-3, 4a, 4b, 4d and 4e built (fast demo order: 4c, 5-7 and "demo ready" next; step 4d adds flexible multi-edit, new files, hash-checked edits, multi-file change sets and the Coder Agent, checked on the Linux machine): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 252 automated tests (251 run on Databricks serverless; 1 needs the full local install); steps 0-3, 4b, 4d and 4e checked live (4d on the Linux machine, 20 Nov 2026).
+**Status:** steps 0-3, 4a, 4b, 4d and 4e built (fast demo order: 4c, 5-7 and "demo ready" next; step 4d adds flexible multi-edit, new files, hash-checked edits, multi-file change sets and the Coder Agent, checked on the Linux machine): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 252 automated tests (251 run on Databricks serverless; 1 needs the full local install); steps 0-3, 4b, 4d and 4e checked live (4d on the Linux machine, 20 Nov 2026). From 20 Nov 2026 development runs in parallel tracks (PyDyna, HPC, ANSA/META, PRIMER, Skills, full vehicle model, core); step M0 makes that possible: 269 tests, one branch per track.
 
 ---
 
@@ -208,6 +208,12 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Evidence:** 252 tests (8 new from these findings); 252 passed on the Linux machine (commit `bc56a61`). The last chat check: "Run the tests" went straight to `coder_agent` -> `run_check`, one prompt, `n`, the fixed answer, 3 model calls and 14k tokens (8 calls and 43k before).
 * **Lessons:** where a rule decides safety or what the user is told, it belongs in code. Rules in the prompt reduced the wrong behaviour but did not remove it (three different wrong answers after a `no`). Each live finding became a test before the fix, so it cannot come back.
 
+### Step M0 - Parallel enablers
+
+* **What:** the user decided to build several agents at the same time (PLAN.md "Parallel development": 7 tracks, one branch each). Before M0 every new agent had to edit the same shared files (`registry.py`, `config.py`, the example config), so parallel branches would conflict at every merge, and an agent could not have sub-agents (PyDyna and ANSA/META are groups). M0 adds: specialists found in their folder; a config section per agent declared in its own package, with defaults, validation, path keys and an example file; groups whose sub-agents are tools of the group agent, shown and audited as `Group/Member`; test and plan layout per track (`tests/conftest.py`, `docs/tracks/`); the six track branches.
+* **Evidence:** 269 tests (17 new in `tests/test_parallel_enablers.py`), all pass on Databricks serverless. A demo track package written into a temporary folder is found, brings its config section and runs orchestrator -> group -> member -> tool with the right tools at each level, tool lines and audit rows; a "no" inside the member ends the turn after 3 model calls. A broken track package is reported and Champion still starts. Breaking the group wiring or the section validation in a copy makes 3 of the new tests fail. Linux and Coder unchanged (all 252 earlier tests pass).
+* **Lessons:** for parallel work the cheapest moment to remove shared edit points is before the first branch; afterwards each one costs a merge per track.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -223,6 +229,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 4d.1-4d.2 | 224 | `EditOperation` and `edit_file_ops` in `tools/edit.py`; `apply_hunks`, `line_range` in `tools/text_patch.py` | Step 4d.1-4d.2 |
 | 4d.3-4d.7 | 244 | `FilePlan` pipeline, `file_create`, `file_write` in `tools/edit.py`; `tools/changeset.py`, `tools/checks.py`, `specialists/coder.py`; `file_hash` | Step 4d.3-4d.7 |
 | 4d.8 | 252 | `stop_after_decline` in `agents/orchestrator.py`; `ChampionContext.declined`; `protect_file` in `policy/sensitive.py`; `pending_terminal_input` in `chat.py`; `coder.check_env` | Step 4d.8 (`bc56a61`) |
+| M0 | 269 | Discovery in `specialists/registry.py`; `register_config_section`, `example_fragment_problems` in `core/config.py`; `members` in `specialists/base.py`; groups in `agents/orchestrator.py`; `tests/conftest.py`; `docs/tracks/` | Step M0 |
 
 ## 8. Demo script (current state)
 

@@ -17,6 +17,13 @@ Safety around the specialist tool:
 * its tool calls are shown live through ``SpecialistHooks``;
 * it is only offered when the current access level enables at least one of
   its tools (step 4b): a specialist that could do nothing is not shown.
+
+Groups (step M0): a group specialist (``SpecialistSpec.members``) is one tool
+for the orchestrator. Its own agent gets each member as a tool built the same
+way (guarded, audited, own turn limit, live tool lines), named
+``Group/Member`` (for example ``PyDyna/Keyword``). The decline rule
+(``stop_after_decline``) is on every agent, so a "no" inside a member ends the
+member, the group and the orchestrator turn with the same fixed answer.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ from champion.core.config import Config
 from champion.core.context import ChampionContext
 from champion.core.hooks import SpecialistHooks
 from champion.policy.tool_policy import ToolRule, register
-from champion.specialists.base import SpecialistSpec
+from champion.specialists.base import SpecialistSpec, all_tool_names, all_tools
 from champion.tools.filesystem import FILE_TOOLS
 from champion.tools.guard import run_guarded_async
 from champion.tools.session_info import session_info
@@ -119,6 +126,22 @@ Rules:
 - When you made or previewed a change, include the diff from the tool result unchanged.
 - Answer with the facts Champion needs: concise, complete, no greetings."""
 
+GROUP_RULES = """
+
+You lead a group of sub-agents. Each one is a tool; it works on its own and returns its answer to you:
+{entries}
+How to use them:
+- Send each part of the task to the sub-agent for that area, with a complete, self-contained
+  task in `input` (goal, paths, file names, what to return). Sub-agents do not see the conversation.
+- Combine their answers into one answer; say which sub-agent did what. Copy diffs, file contents
+  and check results exactly as returned.
+- If a sub-agent reports BLOCKED or that the user did not approve, stop and pass that on; do not
+  give the same task to another sub-agent or tool to get around it."""
+
+
+def member_entries(specs: Iterable[SpecialistSpec]) -> str:
+    return "\n".join(f"- {spec.tool_name} ({spec.title}): {spec.description.strip()}" for spec in specs)
+
 
 def orchestrator_instructions(specs: Iterable[SpecialistSpec]) -> str:
     specs = list(specs)
@@ -127,11 +150,14 @@ def orchestrator_instructions(specs: Iterable[SpecialistSpec]) -> str:
     entries = []
     for spec in specs:
         entry = f"- {spec.tool_name} ({spec.title}): {spec.description.strip()}"
-        if spec.routing_hints:
-            entry += "\n  For example: " + "; ".join(f'"{hint}"' for hint in spec.routing_hints)
+        if spec.members:
+            entry += "\n  It leads: " + ", ".join(member.title for member in spec.members)
+        hints = [hint for item in (spec, *spec.members) for hint in item.routing_hints]
+        if hints:
+            entry += "\n  For example: " + "; ".join(f'"{hint}"' for hint in hints)
         entries.append(entry)
     text = BASE_INSTRUCTIONS + SPECIALISTS_HEADER.format(entries="\n".join(entries))
-    runners = [spec.tool_name for spec in specs if "run_check" in spec.tool_names]
+    runners = [spec.tool_name for spec in specs if "run_check" in all_tool_names(spec)]
     if runners:  # local 4d check: "run the tests" went to the Linux agent (shell_run, blocked)
         text += (f"\n- Running tests or other checks: always {runners[0]} (it runs only the checks the user "
                  "configured and asks first). Send the goal (\"run the tests\"), never a command line from a "
@@ -147,10 +173,16 @@ def with_current_level(instructions: str):
     return render
 
 
-def nested_run_config(config: Config | None, spec: SpecialistSpec) -> RunConfig:
+def display_name(spec: SpecialistSpec, parent: SpecialistSpec | None = None) -> str:
+    """Agent name in tool lines and the audit log: Linux, or PyDyna/Keyword for a sub-agent."""
+    return spec.title if parent is None else f"{parent.title}/{spec.title}"
+
+
+def nested_run_config(config: Config | None, spec: SpecialistSpec,
+                      parent: SpecialistSpec | None = None) -> RunConfig:
     tracing = bool(config.get("llm.tracing")) if config is not None else False
     return RunConfig(tracing_disabled=not tracing, trace_include_sensitive_data=False,
-                     workflow_name=f"Champion/{spec.title}")
+                     workflow_name=f"Champion/{display_name(spec, parent)}")
 
 
 def with_configured_checks(render):
@@ -178,14 +210,19 @@ def stop_after_decline(ctx: RunContextWrapper[ChampionContext], results: list) -
     return ToolsToFinalOutputResult(is_final_output=False)
 
 
-def build_specialist_agent(spec: SpecialistSpec, model: Model) -> Agent[ChampionContext]:
-    render = with_current_level(spec.instructions.strip() + SPECIALIST_RULES)
+def build_specialist_agent(spec: SpecialistSpec, model: Model, config: Config | None = None,
+                           parent: SpecialistSpec | None = None) -> Agent[ChampionContext]:
+    instructions = spec.instructions.strip()
+    if spec.members:
+        instructions += GROUP_RULES.format(entries=member_entries(spec.members))
+    render = with_current_level(instructions + SPECIALIST_RULES)
     if "run_check" in spec.tool_names:
         render = with_configured_checks(render)
+    members = [build_specialist_tool(member, model, config, parent=spec) for member in spec.members]
     return Agent[ChampionContext](
-        name=spec.title,
+        name=display_name(spec, parent),
         instructions=render,
-        tools=list(spec.tools),
+        tools=[*spec.tools, *members],
         model=model,
         tool_use_behavior=stop_after_decline,
     )
@@ -199,16 +236,18 @@ def _arguments(raw: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"value": value}
 
 
-def specialist_failure(spec: SpecialistSpec, max_turns: int):
+def specialist_failure(spec: SpecialistSpec, max_turns: int, parent: SpecialistSpec | None = None):
     """Error text for a failed specialist run (the SDK default hides the reason and says 'try again').
 
     Only the error type is given for other errors: API error messages can contain request details.
     """
+    name = display_name(spec, parent)
+
     def failure(ctx, error: Exception) -> str:
         if isinstance(error, MaxTurnsExceeded):
-            return (f"ERROR: specialist {spec.title} used all {max_turns} max turns without a final "
+            return (f"ERROR: specialist {name} used all {max_turns} max turns without a final "
                     "answer. Do not retry the same task unchanged; tell the user.")
-        return (f"ERROR: specialist {spec.title} failed ({type(error).__name__}). "
+        return (f"ERROR: specialist {name} failed ({type(error).__name__}). "
                 "Do not retry the same task unchanged; tell the user.")
     return failure
 
@@ -227,24 +266,29 @@ def _tool_enabled(tool: Any, ctx, agent) -> bool:
 
 
 def specialist_enabled(spec: SpecialistSpec):
-    """``is_enabled`` for the specialist tool: offered if the level enables any of its tools."""
+    """``is_enabled`` for the specialist tool: offered if the level enables any of its tools
+    (for a group: any tool of the group or of its sub-agents)."""
+    tools = all_tools(spec)
+
     def is_enabled(ctx, agent) -> bool:
-        return not spec.tools or any(_tool_enabled(tool, ctx, agent) for tool in spec.tools)
+        return not tools or any(_tool_enabled(tool, ctx, agent) for tool in tools)
     return is_enabled
 
 
-def build_specialist_tool(spec: SpecialistSpec, model: Model, config: Config | None) -> FunctionTool:
-    """Turn a spec into the orchestrator's ``<name>_agent`` tool (guarded and audited)."""
+def build_specialist_tool(spec: SpecialistSpec, model: Model, config: Config | None,
+                          parent: SpecialistSpec | None = None) -> FunctionTool:
+    """Turn a spec into the ``<name>_agent`` tool of the orchestrator (or of its group), guarded
+    and audited."""
     register(ToolRule(spec.tool_name, "none",
-                      f"Specialist agent {spec.title}; its own tools check their rights"))
+                      f"Specialist agent {display_name(spec, parent)}; its own tools check their rights"))
     max_turns = spec.max_turns or (config.get("orchestration.specialist_max_turns") if config else 20)
-    tool = build_specialist_agent(spec, model).as_tool(
+    tool = build_specialist_agent(spec, model, config, parent).as_tool(
         tool_name=spec.tool_name,
         tool_description=spec.description.strip(),
         max_turns=max_turns,
         hooks=SpecialistHooks(),
-        run_config=nested_run_config(config, spec),
-        failure_error_function=specialist_failure(spec, max_turns),
+        run_config=nested_run_config(config, spec, parent),
+        failure_error_function=specialist_failure(spec, max_turns, parent),
     )
     invoke_specialist = tool.on_invoke_tool
 

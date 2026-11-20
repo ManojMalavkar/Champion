@@ -132,6 +132,8 @@ class ChampionRuntime:
             self.specialists, self.specialist_problems = select_specialists(config)
             self.agent = build_orchestrator(self.model, self.specialists, config)
         self.context.specialists = [spec.tool_name for spec in self.specialists]
+        self.context.sub_agents = {spec.tool_name: [m.tool_name for m in spec.members]
+                                   for spec in self.specialists if spec.members}
         self.run_config = make_run_config(config)
         self.max_turns = config.get("orchestration.max_steps")
         self.total_usage = TurnUsage()

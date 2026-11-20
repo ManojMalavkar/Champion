@@ -68,8 +68,10 @@ def describe_error(exc: Exception) -> str:
 
 
 def format_event(event: ToolEvent, orchestrator: str = "Champion") -> str:
-    """One line per tool call; calls made inside a specialist are indented and named."""
-    prefix = "  " if event.agent in (orchestrator, "") else f"      [{event.agent}] "
+    """One line per tool call; calls made inside a specialist are indented and named, calls of a
+    sub-agent (``PyDyna/Keyword``) one step further (step M0)."""
+    depth = event.agent.count("/")
+    prefix = "  " if event.agent in (orchestrator, "") else f"      {'    ' * depth}[{event.agent}] "
     if event.phase == "start":
         return f"{prefix}-> {event.tool}({event.arguments})"
     for marker in ("BLOCKED", "ERROR"):
@@ -225,7 +227,9 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
                     pending: Callable[[], str] | None = None) -> None:
     if pending is None:
         pending = pending_terminal_input if read_line is input else (lambda: "")
-    specialists = ", ".join(runtime.context.specialists) or "none yet"
+    groups = getattr(runtime.context, "sub_agents", {}) or {}
+    specialists = ", ".join(name + (f" ({', '.join(groups[name])})" if groups.get(name) else "")
+                            for name in runtime.context.specialists) or "none yet"
     write(f"Champion {__version__} - model {runtime.config.get('llm.model_id')}, "
           f"access level {runtime.context.level.describe()}, specialists: {specialists}. /help for commands.")
     for problem in getattr(runtime, "specialist_problems", []):
