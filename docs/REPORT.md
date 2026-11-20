@@ -4,7 +4,7 @@ Author: Manoj Malavkar. Repository: https://github.com/ManojMalavkar/Champion
 
 This report is updated at the end of every build step. It is written to be presented: summary first, then architecture, decisions, safety, progress with evidence, a demo script and likely questions.
 
-**Status:** steps 0-3, 4a, 4b, 4d and 4e built (fast demo order: 4c, 5-7 and "demo ready" next; step 4d adds flexible multi-edit, new files, hash-checked edits, multi-file change sets and the Coder Agent, 244 tests, local check pending): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 244 automated tests (243 run on Databricks serverless; 1 needs the full local install); steps 0-3, 4b and 4e checked live, 4d live check pending on the Linux machine.
+**Status:** steps 0-3, 4a, 4b, 4d and 4e built (fast demo order: 4c, 5-7 and "demo ready" next; step 4d adds flexible multi-edit, new files, hash-checked edits, multi-file change sets and the Coder Agent, checked on the Linux machine): configuration and health check, first agent in a plain chat, access levels with read-only file tools and an audit log, models through the Databricks Unity AI Gateway, Markdown answers in the terminal, orchestrator with a specialist plug-in interface (agents as tools), the safe Linux tool layer (search, streaming edits with undo, command policy, safe executor, approval for deletes), the first real specialist, Linux, using it, and per-folder access (read or edit per folder, chosen by the user with `/access`). 252 automated tests (251 run on Databricks serverless; 1 needs the full local install); steps 0-3, 4b, 4d and 4e checked live (4d on the Linux machine, 20 Nov 2026).
 
 ---
 
@@ -75,6 +75,9 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | Shell command rules | Argument lists only (`shell=False`); allow-list of commands and exact options; never-list with reasons (shells, interpreters, network, `sudo`, `xargs`, `awk`, HPC scheduler); wildcards expanded by Champion; every path checked as read, write or delete; options that run programs, follow links or read contents recursively refused | Done (step 4a), tested |
 | Safe executor | Programs only from `/usr/bin` and `/bin`; environment of 5 variables (no tokens); own process group killed at the time limit; CPU, memory and file-size limits; output capped; private keys and tokens hidden | Done (step 4a), tested |
 | Edits and deletes | Edits where the list allows edit run without a prompt and go into the session change list (`/changes`, `/undo`); deletes ask y/N every time, approval bound to a fingerprint re-checked before the start; `-q` refuses deletes | Done (step 4a), tested |
+| Approval prompt | Only an answer typed after the prompt counts (typed-ahead or pasted input is discarded); a `no` ends the turn with a fixed answer and the same request is not asked again in that turn; large edits, many files and `run_check` ask every time | Done (steps 4d, 4d.8), tested and checked live |
+| Champion's own config | The loaded config file can be read but never edited by any tool, so an agent cannot raise its own limits or add check commands | Done (step 4d.8), tested and checked live |
+| Project checks | `run_check` runs only commands the user lists in `coder.checks`, asks every time, executor limits; only named, non-secret variables added to the clean environment | Done (steps 4d, 4d.8), tested and checked live |
 | Large-file limits | 100 MiB threshold for large-file mode, hard size limit | Step 7 (reads of 100 MiB or more already refused) |
 | MCP rules | Every MCP tool has a policy entry; outbound actions (mail) always approved; web and mail content treated as data | After the demo (L2) |
 | Model edits | Streaming exact-block patch with diff and undo built (step 4a, `file_edit`); LS-DYNA-aware editing on top | After the demo (L3) |
@@ -176,8 +179,34 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
   * Reads give the SHA-256 (`filesystem_read` line 2, new `file_hash` for large models, `start_line` for later parts); an agent's `file_edit` must give `expected_sha256`, so a stale edit is refused.
   * `change_set_apply`: up to 20 files edited, created or written as one change; all checked first, one approval if needed (also above `edit.approval_max_files` = 10 files), ordered commit with rollback, one `/undo` that first checks every file.
   * Coder Agent (`coder_agent`) with `code_check` (syntax only, nothing run), `run_check` (only commands the user configured in `coder.checks`, approval every time) and read-only `git_info`; no `shell_run`.
-* **Evidence:** 244 tests (20 new: 19 in `tests/test_coder.py`); 243 pass on Databricks serverless (doctor exit-code test runs locally). Covered: create/write refusals (secrets, `.champion`, traversal, outside folder, symlinked folder, NUL, private key, size), a file created meanwhile not overwritten, a file changed between check and commit refused, required hash through the tool, change set all-or-nothing, approval, rollback after a failed commit, group undo refused when one file changed, a 20 MiB model in a change set under 12 MiB peak memory, fsync failure and disk full leave nothing behind, a scripted chat through the Coder with audit rows that hold no file text. Live check on the Linux machine pending (list in `docs/steps/04d-flexible-editing.md`).
+* **Evidence:** 244 tests (20 new: 19 in `tests/test_coder.py`); 243 pass on Databricks serverless (doctor exit-code test runs locally). Covered: create/write refusals (secrets, `.champion`, traversal, outside folder, symlinked folder, NUL, private key, size), a file created meanwhile not overwritten, a file changed between check and commit refused, required hash through the tool, change set all-or-nothing, approval, rollback after a failed commit, group undo refused when one file changed, a 20 MiB model in a change set under 12 MiB peak memory, fsync failure and disk full leave nothing behind, a scripted chat through the Coder with audit rows that hold no file text. Live check: see step 4d.8.
 * **Lessons:** separating the check from the write made multi-file changes simple: everything that can fail for a reason the agent can fix fails before the first byte is written. A plain file system has no multi-file transaction, so the report says so: a crash during the commit phase leaves the files already written changed (and listed in `/changes`).
+
+### Step 4d.8 - Live check on the Linux machine and fixes
+
+* **What:** the check list from `docs/steps/04d-flexible-editing.md` run by the user in `champion chat` with Claude Haiku 4.5 through the AI Gateway (20 Nov 2026), plus `pytest` on the Linux machine. Every finding was fixed, covered by a test and checked again on the machine.
+* **Passed first time:**
+  * one `file_edit` with 3 edits and the hash from the read;
+  * `/changes` and `/undo`;
+  * dry run left the file unchanged;
+  * deleting 151 lines asked first, and `n` kept the file;
+  * `file_create` plus a new folder undone together;
+  * a 2-file Coder change set undone together;
+  * a line the user added in another terminal after the read was kept (the Coder read the file again; new hash);
+  * the configured tests ran after `y` (246 passed).
+* **Found and fixed:**
+
+| Finding | Fix |
+| --- | --- |
+| After `/undo` the model still believed the undone values and wrote a diff from memory | The chat tells the model once what `/undo` restored; rules: delegate goals, not old values, and copy diffs exactly |
+| `run_check` failed with exit 127: the venv Python needs `LD_LIBRARY_PATH`, which the clean environment drops | `coder.check_env` (default `[LD_LIBRARY_PATH]`): named variables copied into `run_check` only; secret-looking names and `LD_PRELOAD` refused at load; audit stores names, not values |
+| The Coder read `config/config.yaml`, Champion's own live config, inside an edit folder, so it could also have edited it (approval limits, check commands) | The loaded config file is readable but never edited by any tool (file tools, change sets, shell writes) |
+| "Run the tests" went to the Linux agent, which tried the venv Python through `shell_run` (blocked) | Routing rule and descriptions: only the Coder runs tests; it is told which checks are configured |
+| After a `no` the model asked again, asked the user to "type yes", or said the prompt "did not come through" | Code, not prompt: the same request is not asked again in that turn, and a `no` ends the turn with Champion's fixed answer (SDK `tool_use_behavior`); the model is not called again |
+| A 60-line paste into the chat became 60 messages (about 45 model calls), and a pasted line answered the `Approve?` prompt | Input waiting before an `Approve?` prompt is discarded (only an answer typed after it counts); a paste becomes one message and runs no `/commands` |
+
+* **Evidence:** 252 tests (8 new from these findings); 252 passed on the Linux machine (commit `bc56a61`). The last chat check: "Run the tests" went straight to `coder_agent` -> `run_check`, one prompt, `n`, the fixed answer, 3 model calls and 14k tokens (8 calls and 43k before).
+* **Lessons:** where a rule decides safety or what the user is told, it belongs in code. Rules in the prompt reduced the wrong behaviour but did not remove it (three different wrong answers after a `no`). Each live finding became a test before the fix, so it cannot come back.
 
 ## 7. Metrics
 
@@ -193,13 +222,14 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 4e | 212 | `policy/access.py`, `access_commands.py`; `access` section in `core/config.py` | Step 4e |
 | 4d.1-4d.2 | 224 | `EditOperation` and `edit_file_ops` in `tools/edit.py`; `apply_hunks`, `line_range` in `tools/text_patch.py` | Step 4d.1-4d.2 |
 | 4d.3-4d.7 | 244 | `FilePlan` pipeline, `file_create`, `file_write` in `tools/edit.py`; `tools/changeset.py`, `tools/checks.py`, `specialists/coder.py`; `file_hash` | Step 4d.3-4d.7 |
+| 4d.8 | 252 | `stop_after_decline` in `agents/orchestrator.py`; `ChampionContext.declined`; `protect_file` in `policy/sensitive.py`; `pending_terminal_input` in `chat.py`; `coder.check_env` | Step 4d.8 (`bc56a61`) |
 
 ## 8. Demo script (current state)
 
 About 5 minutes. Run from the project folder with the virtual environment active.
 
 1. `champion --version` and `champion doctor --online` - show the health table, the token "found (value not shown)" and one line per model checked through the AI Gateway.
-2. `pytest -q` - 188 tests pass in a few seconds without calling any model, including the multi-agent contract tests (`tests/test_specialists.py`) and the command-policy tests (`tests/test_command_policy.py`: `find -exec`, `tar --to-command`, `grep -r`, `bash`, `curl`, `sbatch` all refused with a reason).
+2. `pytest -q` - 252 tests pass in about 30 seconds without calling any model, including the multi-agent contract tests (`tests/test_specialists.py`) and the command-policy tests (`tests/test_command_policy.py`: `find -exec`, `tar --to-command`, `grep -r`, `bash`, `curl`, `sbatch` all refused with a reason).
 3. `champion chat --level 1.1` in a folder with a few `.k` files:
    * "What is my access level and which folder am I in?" - point out the `-> session_info({})` line: the agent decided to call a tool instead of guessing.
    * "What can you help with?" - the answer is rendered as Markdown (bullets, bold); `champion chat --plain` shows the raw text.
@@ -221,11 +251,13 @@ This section grows with each step.
 * **Pending local checks:** tests that need the project installed (the doctor test with all packages, live chat checks) are listed in `PLAN.md` and run on the Linux machine.
 * **Sync tests:** every section of the example configuration must match the built-in defaults exactly; the `llm` section must have the same keys (its values are the project's Databricks setup).
 * **Live checks:** a few checks against the real workspace AI Gateway (one chat question with a tool call, `doctor --online`), recorded in the progress log.
+* **Live findings become tests:** each problem found in a live check gets a test that fails first, then the fix (step 4d.8: 8 tests, one on a real pseudo-terminal).
 * **Each step:** all earlier tests must still pass before a commit.
 
 ## 10. Limitations and next steps
 
-* Checked live from Databricks; still to be checked on the Linux machine with real model files.
+* Checked on the Linux machine with small test files; large real LS-DYNA models come with step 7.
+* The model still sometimes calls a tool it does not need or words an answer loosely; the safety decisions do not depend on it (step 4d.8).
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
 * Shell commands open their paths after Champion's check (time-of-check race); `cp -r` into an existing folder can follow links already inside it; shell writes are listed but have no undo. A sandbox backend later removes the first two.
 * Per-folder access has no separate delete right (delete = edit + approval every time) and the GUI table comes with the TUI (step 6).
@@ -239,6 +271,7 @@ This section grows with each step.
 * **How do you stop the model from reading files it should not?** The access level lives in the run context, which the model cannot see or change; every file tool checks it before acting, and some paths are always blocked. The model's request is treated as untrusted input.
 * **What if the engineer needs two folders, one to read and one to change?** The access list (step 4e): `/access add /data/models read`, `/access add /scratch/runs edit`. The longest matching folder wins, presets keep the simple cases simple, and only the user can change the list.
 * **How do you handle 1 GB+ models?** An index of keyword positions, built once by streaming; the model asks for outlines, searches and small ranges; edits are exact-text patches applied by streaming to a new file and swapping it in.
+* **What if the model ignores a rule in its instructions?** Safety and what the user is told must not depend on it. In the live check the model ignored "do not ask again after a no" three different ways, so that rule moved into code: a `no` ends the turn with a fixed answer, and the same request is never asked twice in a turn.
 * **How do you test an LLM application?** Deterministic tests with a scripted fake model for all logic around the model; a small number of manual or online checks for real model behaviour.
 * **Why the Databricks AI Gateway?** Model access is governed centrally (permissions, usage tracking) and no provider key is needed; Champion only needs the workspace URL and a token, and the config refuses ungoverned endpoints.
 * **Could Champion move to LangGraph or CrewAI?** The safety core and the tool logic are plain Python; only the agent wiring and the runtime would change.
