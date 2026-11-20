@@ -28,7 +28,7 @@ DESCRIPTION = (
     "processes by memory or CPU and system information; edit text files (replace, insert, delete), "
     "create new text files, create folders, rename, move or sort files into folders; run allowed Linux commands "
     "(read commands where the user's access allows read, edits where it allows edit, deletes only "
-    "after the user approves). "
+    "after the user approves). It cannot run Python, pytest, tests or scripts: send those to the Coder. "
     "Give it the complete task: what to do, which folder or files, and what to return."
 )
 

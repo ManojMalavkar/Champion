@@ -26,7 +26,8 @@ DESCRIPTION = (
     "Coder: changes source code, tests, configuration files and documentation in a project, "
     "also several files as one change (for example a function, its test and a config key). "
     "It reads the files, plans the change, shows the diffs, applies them as one undoable set, "
-    "checks the syntax and runs the user's configured checks (tests) when asked. "
+    "checks the syntax and runs the tests and other checks the user configured (the only specialist "
+    "that can run tests). "
     "Give it the complete task: what to change, in which project or files, and how to check it."
 )
 
@@ -68,6 +69,7 @@ Rules:
 - Say "edit", not "write", when you talk about changing files."""
 
 ROUTING_HINTS = (
+    "run the tests",
     "add a timeout option to runtime.py and a test for it",
     "fix the bug in parser.py and run the tests",
     "rename the function load_model everywhere in the project",

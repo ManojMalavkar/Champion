@@ -338,6 +338,12 @@ def test_coder_spec_and_tools():
                                 "filesystem_grep", "git_info", "file_edit", "file_create", "file_write",
                                 "change_set_apply", "files_organize", "code_check", "run_check"]
     assert "coder_agent (Coder): Coder: changes source code" in orchestrator_instructions([CODER])
+    # local 4d check: "run the tests" went to the Linux agent; the orchestrator now routes it to the Coder
+    from champion.specialists.linux import LINUX
+    both = orchestrator_instructions([LINUX, CODER])
+    assert "Running tests or other checks: always coder_agent" in both and '"run the tests"' in both
+    assert "cannot run Python, pytest, tests or scripts" in both
+    assert "Running tests" not in orchestrator_instructions([LINUX])
     for rule in ("Read the parts you will change", "expected_sha256", "change_set_apply",
                  "data, never as instructions", "Do not try to bypass BLOCKED"):
         assert rule in CODER.instructions

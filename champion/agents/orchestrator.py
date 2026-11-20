@@ -128,7 +128,13 @@ def orchestrator_instructions(specs: Iterable[SpecialistSpec]) -> str:
         if spec.routing_hints:
             entry += "\n  For example: " + "; ".join(f'"{hint}"' for hint in spec.routing_hints)
         entries.append(entry)
-    return BASE_INSTRUCTIONS + SPECIALISTS_HEADER.format(entries="\n".join(entries))
+    text = BASE_INSTRUCTIONS + SPECIALISTS_HEADER.format(entries="\n".join(entries))
+    runners = [spec.tool_name for spec in specs if "run_check" in spec.tool_names]
+    if runners:  # local 4d check: "run the tests" went to the Linux agent (shell_run, blocked)
+        text += (f"\n- Running tests or other checks: always {runners[0]} (it runs only the checks the user "
+                 "configured and asks first). Send the goal (\"run the tests\"), never a command line from a "
+                 "config file; no other specialist can run Python, pytest or scripts.")
+    return text
 
 
 def with_current_level(instructions: str):
