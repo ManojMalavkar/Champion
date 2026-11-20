@@ -1609,14 +1609,14 @@ REPORT.md demo script final (about 10 minutes); full run on the Linux machine wi
 
 ## Parallel development (from 20 Nov 2026)
 
-Decided with the user on 20 Nov 2026: after step 4d, several agents are built at the same time instead of one step after another. This section replaces "everything on `main` until the demo" and the phase B rule "at most two branches". Fast demo steps 5 (PyDyna knowledge), 6 (TUI) and 7 (large-model reading) move into the tracks below; L1-L5 move to the tracks or to `main` as listed. Status: plan proposed, open decisions at the end of this section.
+Decided with the user on 20 Nov 2026: after step 4d, several agents are built at the same time instead of one step after another. This section replaces "everything on `main` until the demo" and the phase B rule "at most two branches". Fast demo steps 5 (PyDyna knowledge), 6 (TUI) and 7 (large-model reading) move into the tracks below; L1-L5 move to the tracks or to `main` as listed. Status: plan agreed with the user on 20 Nov 2026 (decisions in P.8); next is M0.
 
 ### P.1 Tracks
 
 | # | Track | Branch | Git folder (Databricks) / worktree (Linux) | What |
 | --- | --- | --- | --- | --- |
 | T1 | PyDyna | `track/pydyna` | `Champion-pydyna` | `pydyna_agent` group with 3 sub-agents: Keyword Lookup, PyDyna Code, PyDPF-Post |
-| T2 | HPC | `track/hpc` | `Champion-hpc` | `hpc_agent`: Slurm jobs through `mjob` (status, details, downloads, kill, delete, submit, FEMZIP) |
+| T2 | HPC | `track/hpc` | `Champion-hpc` | `hpc_agent`: port of the existing HPC_Agent (Slurm through `mjob`: status, details, downloads, kill, delete, FEMZIP; no submit in the first version) |
 | T3 | ANSA/META | `track/ansa-meta` | `Champion-ansa-meta` | `ansa_meta_agent` group with 2 sub-agents: Code (writes ANSA/META Python scripts) and Task (runs tested scripts in batch to extract information or do jobs) |
 | T4 | PRIMER | `track/primer` | `Champion-primer` | `primer_agent`: Oasys PRIMER JavaScript knowledge, script writing, PRIMER batch tasks |
 | T5 | Skills | `track/skills` | `Champion-skills` | Skills framework (former L1), skill authoring rules and checks, first shared skills |
@@ -1640,7 +1640,7 @@ Each Databricks Git folder has one branch checked out, so each track gets its ow
 | # | Item | Needed by | Content |
 | --- | --- | --- | --- |
 | M0 | Parallel enablers (first, blocks all tracks) | all | Specialists found automatically in `champion/specialists/*/` (no edit of `registry.py`); a spec declares its config section, defaults and validation (no edit of `config.py`; the sync test reads them); `config/examples/*.yaml` fragments; sub-specialists (a group specialist offers its sub-agents as tools, depth 2 at most, tool lines and audit show `PyDyna/Keyword`, the decline and approval rules apply at every depth); `tests/<track>/` layout; `docs/tracks/` template; branches and Git folders created |
-| M1 | Knowledge layer (read side; former step 5 base and L5 read) | T1, T3, T4 | Open a `<agent>.knowledge_root` (`vector_db/` Chroma, `knowledge-base/` JSONL), search and lookup tool factory with sources and distances, same embedding model as the existing databases, `champion doctor` checks, read only |
+| M1 | Knowledge layer (read side; former step 5 base and L5 read) | T1, T3, T4 | Open a knowledge root inside the project folder, one per agent (`knowledge/pydyna/`, `knowledge/ansa_meta/`, `knowledge/primer/`, each with `vector_db/` Chroma and `knowledge-base/` JSONL; see "Knowledge base layout"), search and lookup tool factory with sources and distances, same embedding model as the databases, `champion doctor` checks, read only |
 | M2 | Program tools (step 4c generalised) | T2, T3, T4, T6 | Trusted external programs and scripts (`mjob`, ANSA/META/PRIMER batch, user scripts) declared in a manifest: path and SHA-256, argument template with typed slots, class (read, edit, delete, remote), environment (licences, modules), time limit, approval rule; refused if the file changed |
 | M3 | Code execution framework (former L4) | T1, T3, T4 | Generated script -> static check (Python AST; JavaScript rules for PRIMER) -> reviewer agent (policy and intent) -> user approval bound to the code hash -> backend run in a run folder under an edit folder; backends: host Python (PyDyna, PyDPF-Post), ANSA batch, META batch, PRIMER batch; outputs and logs captured |
 | M4 | Textual TUI (former step 6) | demo | As planned in step 6; panels come from the registry, so new agents appear without TUI changes |
@@ -1658,24 +1658,24 @@ M0 is one step. M1 and M2 can be built at the same time by two threads on `main`
 * T1.5 Model questions (needs T6): counts, materials and parts of a real model through the LS-DYNA library.
 * T1.6 Skills (needs T5): PyDyna and DPF code templates as skills.
 
-**T2 HPC (`track/hpc`)** - Slurm through `mjob` only (no direct `ssh`, `sbatch`, `scancel`); `mjob` is a trusted program (M2).
-* T2.1 Read only (needs M2): parse `*_jobid` files (pure Python), `status`, `jobstat`, `details`, `list_completed_job_files`. Verify: status and details of a running and a finished job.
-* T2.2 Downloads (class edit, target inside an edit folder, listed in `/changes`): `download_completed`, `download_running`, `download_inf_dir`.
-* T2.3 Stop jobs (approval every time, own jobs only): `kill` (graceful D3KIL), `delete` (scancel).
-* T2.4 Submit (approval every time, shows CPUs, master file, template): `submit`.
-* T2.5 FEMZIP conversions; skill `hpc.job_submission` (needs T5).
+**T2 HPC (`track/hpc`)** - port of the existing, working HPC agent (`mscript-git/Final_pakage/mscripts_data/HPC_Agent`, read only there): its tools in `bin/my_tool_functions.py` call `mjob` with `subprocess`. In Champion: same tools on the Agents SDK, `mjob` called only as a trusted program (M2: path and SHA-256, argument template, no shell), never direct `ssh`, `sbatch`, `scancel`. Slurm (from `mjob`).
+* T2.1 Read only (needs M2): `get_job_details_from_file` (parse `*_jobid`, pure Python), `jobstat`, `single_jobstatus_by_id`, `single_jobstatus_by_path`, `list_completed_job_files`. Verify: status and details of a running and a finished job.
+* T2.2 Downloads (class edit, target inside an edit folder, listed in `/changes`): `download_running_job_result_by_id`, `download_completed_job_result_by_id`.
+* T2.3 Stop jobs (approval every time, own jobs only): `job_kill_by_id` (graceful D3KIL), `job_delete_by_id` (scancel).
+* T2.4 FEMZIP conversions: `convert_d3plot_to_femzip`, `convert_d3part_to_femzip` (class edit).
+* T2.5 Later: `submit` (approval every time; not in the existing agent, so not in the first version); `submit_suggestion` and `list_suggestions` stay out (Champion has the audit log); skill `hpc.job_submission` (needs T5).
 
 **T3 ANSA/META (`track/ansa-meta`)** - group `ansa_meta_agent` with two sub-agents; knowledge from ANSA-META_CodeRAG (read only there).
 * T3.1 Knowledge (needs M1): `ansa_api`, `meta_api` collections and the knowledge graph as search tools.
 * T3.2 Code agent: writes ANSA and META Python scripts; static check for ANSA/META scripts (forbidden modules and calls). Verify: script passes the check, no run.
-* T3.3 Batch backends (needs M2/M3): ANSA batch (`-nogui -execscript`), META batch; licence environment.
+* T3.3 Batch backends (needs M2/M3; waits for P.8 decision 5): ANSA batch (`-nogui -execscript`), META batch; licence environment.
 * T3.4 Task agent: runs tested scripts (skills) to extract information (parts, thickness, mass, materials; META curves and reports) into a run folder. Verify: part list of a small model.
 * T3.5 Skills: ANSA/META script templates (needs T5).
 
 **T4 PRIMER (`track/primer`)**
 * T4.1 Knowledge (needs M1): `primer_js` collection (to be built if it does not exist).
 * T4.2 Code agent: writes PRIMER JavaScript; JavaScript static check.
-* T4.3 PRIMER batch backend (needs M2/M3) and tasks: model check, mass, contacts report.
+* T4.3 PRIMER batch backend (needs M2/M3; waits for P.8 decision 5) and tasks: model check, mass, contacts report.
 * T4.4 Reuse the LS-DYNA library (needs T6); skills (needs T5).
 
 **T5 Skills (`track/skills`)** - framework first, because T1-T4 and T6 write their skills on top of it.
@@ -1718,14 +1718,16 @@ None yet. Format: `CR-n (track, date): what - why - status`.
 * T6 Full vehicle model: not started (waits for M0)
 * T7 Core: next is M0
 
-### P.8 Open decisions for the parallel plan
+Security note found while planning T2 (20 Nov 2026): the existing HPC_Agent folder in `mscript-git` tracks `certs/preprod-genai-mtls.key` (a private key) and `certs/certificate-genai.pem` in Git. Champion does not copy them (secret files are blocked anyway); the user should remove them from that repository and rotate the key if it was pushed.
 
-1. PyDyna: one group `pydyna_agent` with 3 sub-agents (proposed, keeps the orchestrator's list short) or 3 top-level agents.
-2. ANSA/META: one group with Code and Task sub-agents (proposed) or ANSA and META as separate agents.
-3. Knowledge roots on the Linux machine for PyDyna, ANSA/META and PRIMER; whether `pydpf_post` and `primer_js` collections exist; which embedding model the existing Chroma databases use (queries must use the same one).
-4. HPC: confirm `mjob` only (Slurm, from the mjob script) and its path; whether submit is allowed at all in the first version.
-5. Executables and licence environment for ANSA, META and PRIMER batch; whether a DPF server is available for PyDPF-Post.
-6. Which tracks start first after M0 (proposed: T5 skills and T6 vehicle model, they need nothing else), and whether the interview demo still sets the priority.
+### P.8 Decisions for the parallel plan (user, 20 Nov 2026)
+
+1. PyDyna: one group `pydyna_agent` with 3 sub-agents (Keyword Lookup, PyDyna Code, PyDPF-Post). Decided.
+2. ANSA/META: one group `ansa_meta_agent` with sub-agents (Code, Task). Decided.
+3. Databases: inside the project folder only, a separate one per agent: `knowledge/pydyna/`, `knowledge/ansa_meta/`, `knowledge/primer/`. Decided. Still open (needed in M1): which embedding model each existing Chroma database uses, and whether `pydpf_post` and `primer_js` collections exist yet.
+4. HPC: the HPC agent already exists and is connected to `mjob`; T2 ports it (no submit in the first version). Decided.
+5. Executables and licence environment for ANSA, META and PRIMER batch, DPF server for PyDPF-Post: not yet clear. Open; T3.3 and T4.3 wait for it, T1.4 needs only the host Python. Knowledge and code writing (T3.1-T3.2, T4.1-T4.2) do not wait.
+6. Answered "no": the interview demo no longer sets the priority. Start order after M0 as proposed (T5 and T6 first, they need nothing else) unless the user says otherwise.
 
 ## Full roadmap (after the demo)
 
@@ -1800,17 +1802,21 @@ README, full test run, security review of every tool and MCP entry, confirm mCha
 * Skills only contain instructions and code; they never run anything by themselves. Running still goes through the tool, review and approval path.
 
 ## Knowledge base layout (same for every agent)
-Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root with the same two folders:
+Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root with the same two folders. All roots are inside the project folder, one separate root per agent (user, 20 Nov 2026):
 
 ```
-<knowledge_root>/
-  vector_db/        Chroma database (chroma.sqlite3 + collection folders)
-  knowledge-base/   JSONL source files (keyword_reference.jsonl, *_docs.jsonl, *_source*.jsonl)
+<project>/knowledge/
+  pydyna/       vector_db/ (Chroma: chroma.sqlite3 + collection folders)   knowledge-base/ (JSONL)
+  ansa_meta/    vector_db/                                                 knowledge-base/
+  primer/       vector_db/                                                 knowledge-base/
 ```
+
+* Default `<agent>.knowledge_root` = `knowledge/<agent>` relative to the project folder; roots outside the project folder are refused.
+* Proposed: JSONL sources in `knowledge-base/` are committed; `vector_db/` is built from them (L5 `champion kb build`) and is in `.gitignore` (binary, large).
 
 * Config: one key per agent, `<agent>.knowledge_root` (for example `pydyna.knowledge_root`, `ansa_meta.knowledge_root`, `primer.knowledge_root`); `vector_db/` and `knowledge-base/` are derived from it. Explicit paths (such as `pydyna.database_path`) stay possible as overrides.
 * The shared knowledge layer (read side in fast demo step 5, `champion kb` in L5) opens any root with this layout, checks it (`champion kb status`, `champion doctor`) and builds into it (`champion kb build`); agents only declare their collection names and JSONL files.
-* Fast demo step 5 introduces `pydyna.knowledge_root` (instead of `pydyna.database_path` / `pydyna.keyword_reference_path`).
+* M1 introduces the `<agent>.knowledge_root` keys (instead of `pydyna.database_path` / `pydyna.keyword_reference_path`).
 
 ## MCP plan
 * L2 builds the MCP client framework (after the demo). Each agent's MCP servers are added later on its branch or after phase C.
@@ -1840,8 +1846,7 @@ Each knowledge-based agent (PyDyna, ANSA/META, PRIMER) has one knowledge root wi
 * Deferred `file_transform` (no longer step 4d), proposed: `edit.transform_backup_max_bytes` 2 GiB (larger files only with an `output` file); `upper`/`lower` ASCII only like `tr a-z` (Unicode later); in-place undo by full copy in the first version. Version 1 scope agreed with the user (19 Nov 2026): `upper`, `lower`, `delete_chars`, `squeeze`, `line_endings`, `columns`, `join_lines`; `wrap`, `reflow` and `apply_patch` deferred.
 * Step 4c script tools: how many existing scripts, which only read and which write or delete, and which environment settings (licences, modules) they need.
 * File-size limit for files written by commands (`cp`, `tar`, `mv` to another disk): proposal `execution.max_command_file_bytes`, default 8 GiB (same as `pydyna.max_model_bytes`), because `execution.max_output_file_bytes` (100 MiB, meant for generated code) would stop copies of normal LS-DYNA models.
-* HPC agent (`agent/hpc`): scheduler type on the Linux machine (Slurm or PBS) and which commands it may run.
 * `pydyna.max_model_bytes` value (8 GiB for now).
 * Which web search and mail MCP servers (provider, company approval for sending data out).
 * Interview date (decides how much of the fast demo order is needed).
-* Path of the existing PyDyna knowledge folder (`vector_db/`, `knowledge-base/`) on the Linux machine (needed for fast demo step 5).
+* Parallel plan: see P.8 (embedding models of the databases; batch executables and licences).
