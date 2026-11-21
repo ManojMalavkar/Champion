@@ -1783,11 +1783,13 @@ One step inside a track, and a core request:
 
 ### P.6 Core requests (CR)
 
-None yet. Format: `CR-n (track, date): what - why - status`.
+Format: `CR-n (track, date): what - why - status`.
+
+* CR-1 (T1 PyDyna, 21 Nov 2026): core tests do not see agents of track packages - `tests/conftest.py` gets an autouse fixture: for tests directly in `tests/`, `registry.registered_specialists()` leaves out the agents that `load_builtin_specialists()` finds in track packages (everything except `coder` and `linux_coder`); agents a test registers itself stay visible; tests in `tests/<track>/` see all. Why: with the `pydyna` group registered (on by default, `agents.pydyna.enabled: True` in `DEFAULTS`), 11 core tests fail because they expect only Coder and Linux (test_filesystem_tools 1, test_linux_specialist 2, test_parallel_enablers 4, test_runtime 1, test_specialists 3); a track may not edit them. Built on `main` 21 Nov 2026 (`tests/conftest.py`, `tests/test_core_tests_hide_track_agents.py`, walkthrough `docs/steps/cr-01-core-tests-hide-track-agents.md`): `main` 271 passed; `track/pydyna` with it 310 passed, 5 skipped. Details: `docs/tracks/pydyna.md` (CR-1). Done; T1 merges `main` next.
 
 ### P.7 Track status
 
-* T1 PyDyna: branch created; not started (waits for M1). Plan: `docs/tracks/pydyna.md`
+* T1 PyDyna: T1.0 records and the 5 tools built on `track/pydyna` (not committed); CR-1 done, merges `main` next; search through a track-local stub until M1. Plan: `docs/tracks/pydyna.md`
 * T2 HPC: branch created; T2.0 can start, T2.1 waits for M2. Plan: `docs/tracks/hpc.md`
 * T3 ANSA/META: branch created; not started (waits for M1). Plan: `docs/tracks/ansa-meta.md`
 * T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
