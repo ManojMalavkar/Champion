@@ -1621,8 +1621,9 @@ Decided with the user on 20 Nov 2026: after step 4d, several agents are built at
 | T4 | PRIMER | `track/primer` | `Champion-primer` | `primer_agent`: Oasys PRIMER JavaScript knowledge, script writing, PRIMER batch tasks |
 | T5 | Skills | `track/skills` | `Champion-skills` | Skills framework (former L1), skill authoring rules and checks, first shared skills |
 | T6 | Full vehicle model | `track/vehicle-model` | `Champion-vehicle` | Shared LS-DYNA library for 1-8 GB models (former step 7 and L3) and a `model_agent` for whole-model questions |
-| T7 | Core and fixes | `main` | `Champion-git` | Shared foundations every track needs (P.3), the TUI (former step 6), fixes reported by tracks, integration (L6) and hardening (L7) |
+| T7 | Core and fixes | `main` | `Champion-git` | Shared foundations every track needs (P.3), fixes reported by tracks, integration (L6) and hardening (L7) |
 | T8 | Memory | `track/memory` | `Champion-memory` | Memory library `champion/memory/`: conversation memory (decisions, preferences, previous work, current task), project memory in a folder the user selects (decisions, engineering lessons, model and program structure), compaction of older turns, save rules (partly user, partly agent), retrieval; SOPs as skills (T5). Hooked into the chat by M6 |
+| T9 | TUI | `track/tui` | `Champion-tui` | Textual TUI (former step 6 / M4) in its own package `champion/tui/`, built on the existing runtime and chat functions; panels for tool lines, approvals, access, changes, audit and agents (from the registry, so new agents and sub-agents appear without TUI changes) |
 
 Each Databricks Git folder has one branch checked out, so each track gets its own Git folder (same remote) and its own Genie Code thread; on the Linux machine `git worktree add ../Champion-<track> track/<track>`. One thread works in one folder only.
 
@@ -1644,7 +1645,7 @@ Each Databricks Git folder has one branch checked out, so each track gets its ow
 | M1 | Knowledge layer (read side; former step 5 base and L5 read) | T1, T3, T4 | Open a knowledge root inside the project folder, one per agent (`knowledge/pydyna/`, `knowledge/ansa_meta/`, `knowledge/primer/`, each with `vector_db/` Chroma and `knowledge-base/` JSONL; see "Knowledge base layout"), search and lookup tool factory with sources and distances, same embedding model as the databases, `champion doctor` checks, read only |
 | M2 | Program tools (step 4c generalised) | T2, T3, T4, T6 | Trusted external programs and scripts (`mjob`, ANSA/META/PRIMER batch, user scripts) declared in a manifest: path and SHA-256, argument template with typed slots, class (read, edit, delete, remote), environment (licences, modules), time limit, approval rule; refused if the file changed |
 | M3 | Code execution framework (former L4) | T1, T3, T4 | Generated script -> static check (Python AST; JavaScript rules for PRIMER) -> reviewer agent (policy and intent) -> user approval bound to the code hash -> backend run in a run folder under an edit folder; backends: host Python (PyDyna, PyDPF-Post), ANSA batch, META batch, PRIMER batch; outputs and logs captured |
-| M4 | Textual TUI (former step 6) | demo | As planned in step 6; panels come from the registry, so new agents appear without TUI changes |
+| M4 | Textual TUI (former step 6) | demo | Moved to track T9 (`track/tui`, user, 20 Nov 2026); on `main` only its core requests: `champion tui` command in `cli.py`, and an async approval hook if the TUI needs one |
 | M5 | MCP framework (former L2) | later | As planned in L2 |
 | M6 | Memory hook (CR of T8) | T8 | Runtime: older turns compacted into a summary instead of dropped (`orchestration.history_turns` stays the number of raw turns); relevant memory items added to the orchestrator's instructions; memory tools for the orchestrator; `/memory` commands in the chat; memory files go through the access rules. Built after T8.1-T8.3 exist; independent of M1-M3 |
 
@@ -1702,6 +1703,14 @@ M0 is one step. M1 and M2 can be built at the same time by two threads on `main`
 * T8.5 `/memory` command logic (list, show, add, edit, forget, project).
 * T8.6 Integration through M6 (core request).
 * T8.7 SOPs as skills (needs T5; P.8 decision 11, may change).
+
+**T9 TUI (`track/tui`)** - package `champion/tui/`, tests `tests/tui/` (Textual pilot, headless, fake model); details in `docs/tracks/tui.md`. Started with `python -m champion.tui` until the `champion tui` command lands (core request).
+* T9.1 App: chat panel with Markdown answers, input line, status bar (model, access level, tokens) on `ChampionRuntime`.
+* T9.2 Tool-line panel: live tool calls of every agent, indented for sub-agents (`Group/Member`).
+* T9.3 Approval dialog through `ChampionContext.approver`; a "no" ends the turn as in the chat.
+* T9.4 Panels: access (levels and folders), changes with undo, audit, agents and sub-agents from the registry.
+* T9.5 Slash commands as in the chat (`/access`, `/changes`, `/undo`, `/audit`, `/new`, `/help`) by reusing the chat functions.
+* T9.6 `champion tui` command (core request); later the memory panel (needs M6).
 
 **T7 Core (`main`)**: M0-M5 (P.3), core requests (P.6), fixes from all tracks, then L6 integration (all agents enabled together, routing tests with one question per agent and mixed questions, cross-agent skills) and L7 hardening.
 
@@ -1786,6 +1795,7 @@ None yet. Format: `CR-n (track, date): what - why - status`.
 * T6 Full vehicle model: branch created; can start. Plan: `docs/tracks/vehicle-model.md`
 * T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); next M1 and M2; M6 after T8.1-T8.3
 * T8 Memory: branch created; T8.1-T8.5 can start (library and tests only). Plan: `docs/tracks/memory.md`
+* T9 TUI: branch created; T9.1 can start. Plan: `docs/tracks/tui.md`
 
 #### M0 status (built 20 Nov 2026)
 - [x] Specialists found in `champion/specialists/` (modules and packages; broken packages reported, Champion still starts); `registry.py` names no specialist.
