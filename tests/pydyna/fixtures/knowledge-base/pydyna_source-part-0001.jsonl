@@ -1,0 +1,2 @@
+{"class": "PyDyna source", "method": "src/ansys/dyna/core/deck.py#chunk-1", "description": "class Deck: ...", "source_path": "src/ansys/dyna/core/deck.py", "chunk_index": 0}
+{"class": "PyDyna source", "method": "src/ansys/dyna/core/deck.py#chunk-2", "description": "def write(self): ...", "source_path": "src/ansys/dyna/core/deck.py", "chunk_index": 1}

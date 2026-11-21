@@ -1,0 +1,2 @@
+{"class": "DynaBase", "method": "__init__", "description": "Base class.", "signature": "DynaBase()", "example": "model = DynaBase()"}
+{"class": "DynaSolution", "method": "__init__", "description": "Solution settings.", "signature": "DynaSolution()"}

@@ -1,0 +1,8 @@
+{"class": "PyDPF-Post source", "method": ".pre-commit-config.yaml#chunk-1", "description": "repos:", "source_project": "PyDPF-Post", "source_path": ".pre-commit-config.yaml", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": "CODE_OF_CONDUCT.md#chunk-1", "description": "# Code of conduct", "source_project": "PyDPF-Post", "source_path": "CODE_OF_CONDUCT.md", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": ".github/workflows/ci.md#chunk-1", "description": "ci", "source_project": "PyDPF-Post", "source_path": ".github/workflows/ci.md", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": "README.md#chunk-1", "description": "# PyDPF-Post", "source_project": "PyDPF-Post", "source_path": "README.md", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": "src/ansys/dpf/post/simulation.py#chunk-1", "description": "class Simulation:", "source_project": "PyDPF-Post", "source_path": "src/ansys/dpf/post/simulation.py", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": "examples/01-basics/01-energy.py#chunk-1", "description": "energy plot", "source_project": "PyDPF-Post", "source_path": "examples/01-basics/01-energy.py", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": "doc/source/index.rst#chunk-1", "description": "index", "source_project": "PyDPF-Post", "source_path": "doc/source/index.rst", "chunk_index": 0}
+{"class": "PyDPF-Post source", "method": "pyproject.toml#chunk-1", "description": "[project]", "source_project": "PyDPF-Post", "source_path": "pyproject.toml", "chunk_index": 0}
