@@ -60,7 +60,10 @@ def test_pydyna_mat_024_keeps_the_full_card():
     assert mat["parameters"]["RO"]["unit"] == "tonne/mm^3"
     assert "card" in mat["parameters"]["RO"]
     assert "*MAT_PIECEWISE_LINEAR_PLASTICITY" in mat["aliases"]
-    assert rec.keyword_index(rec.load_keywords(KB))["*MAT_PIECEWISE_LINEAR_PLASTICITY"]["keyword"] == "*MAT_024"
+    # PyDyna has both names as their own keywords (mat_024.py, mat_piecewise_linear_plasticity.py),
+    # so the long name finds its own record: an alias never hides a real keyword.
+    long_name = rec.keyword_index(rec.load_keywords(KB))["*MAT_PIECEWISE_LINEAR_PLASTICITY"]
+    assert long_name["keyword"] == "*MAT_PIECEWISE_LINEAR_PLASTICITY"
 
 
 def test_pydyna_api_has_62328_unique_ids():
