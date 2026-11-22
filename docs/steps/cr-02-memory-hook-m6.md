@@ -118,7 +118,8 @@ agent, and the re-run catches it (1 failed, 17 passed). All 12 caught.
 ## Live check on Linux (22 Nov 2026)
 
 OK: 339 passed; doctor line off/on; `/memory`, `set`, `prefs`; protected
-preference and secret value refused; declined `rm old.k` stored and the file
+preference refused (a secret value not checked yet: the pasted lines went to
+the model as one message); declined `rm old.k` stored and the file
 kept; archived requests `done` with `audit_id`, no `result_excerpt`; Ctrl-C
 archived as `cancelled`; no secret in any memory file; folders 700, files 600.
 
