@@ -14,15 +14,15 @@ The long-term target is `docs/tracks/pydyna-roadmap.md` (saved unchanged). This 
 | PD-01 Retrieval tools | T1.1a here; version filter, type filters, exact symbol first -> T1.1 with M1 | Category filter and folder filter done; rest with M1 |
 | PD-02 Specialist group | T1.1a here | Done (group `pydyna`, 3 sub-agents, read only) |
 | BASE-01 Linux baseline | here | Done (326 passed, real search, ansys-dyna-core 0.12.1); ansys-dpf-post installed on Linux (user, 22 Nov 2026; version still to record); versions in config = core request (`config.py` shared) |
-| PD-03 CodeArtifact, PatchArtifact, coder | `main`: step 4d already has the coder tools (`file_edit` exact edits, change sets, hash check, diff, undo); `CodeArtifact` / `PatchArtifact` = proposed CR-2 | Proposed |
+| PD-03 CodeArtifact, PatchArtifact, coder | `main`: step 4d already has the coder tools (`file_edit` exact edits, change sets, hash check, diff, undo); `CodeArtifact` / `PatchArtifact` = proposed CR-3 | Proposed |
 | PD-04 Version-aware API catalog | T1.2a here (from the installed ansys-dyna-core 0.12.1; no core change) | Next track step (proposed) |
 | PD-05 Code and API checker | Generic AST, security and path checks: M3 on `main`; PyDyna API signature check: T1.2b here (uses T1.2a) | Planned |
 | PD-06 LLM semantic reviewer | M3 reviewer on `main`; PyDyna evidence (API records, rules) from this track | Planned |
 | PD-07 Script ingestion and reuse | Generic ingestion: capability registry on `main`; PyDyna API and version checks of a script: here | Planned |
-| CAP-01..05 Capability registry, maturity, ranking, versioning | `main`, new shared milestone M7 (CR-3; user, 22 Nov 2026): used by Linux, HPC, ANSA/META too | Decided, to raise on `main` |
-| PD-08 Modeling rules | Rule engine and precedence: `main` (with M3 / M7, CR-3); PyDyna rule content: here (`knowledge/pydyna/`) | Planned. Note: `*MAT_024` and `*MAT_PIECEWISE_LINEAR_PLASTICITY` are two keywords in PyDyna; a rule must list both |
+| CAP-01..05 Capability registry, maturity, ranking, versioning | `main`, new shared milestone M7 (CR-4; user, 22 Nov 2026): used by Linux, HPC, ANSA/META too | Decided, to raise on `main` |
+| PD-08 Modeling rules | Rule engine and precedence: `main` (with M3 / M7, CR-4); PyDyna rule content: here (`knowledge/pydyna/`) | Planned. Note: `*MAT_024` and `*MAT_PIECEWISE_LINEAR_PLASTICITY` are two keywords in PyDyna; a rule must list both |
 | PD-09 PyDPF code generation | T1.3 here | ansys-dpf-post installed (user, 22 Nov 2026); open: binout support (search found nothing for "section force from binout") |
-| M3-A..D Sandbox, staging, diff/commit, Bubblewrap | M3 on `main` (scope extended, proposed CR-4) | Proposed |
+| M3-A..D Sandbox, staging, diff/commit, Bubblewrap | M3 on `main` (scope extended, proposed CR-5) | Proposed |
 | PD-10 Run and repair loop | M3 on `main`; PyDyna use: T1.4 here | Needs M3 |
 | PD-11 Model read tools, include-tree pilot | T6 (`champion/lsdyna/`, track/vehicle-model) proposed | Undecided (user decides later) |
 | PD-12 Model modification | T6 library + M3 sandbox; PyDyna use: T1.5 here | Needs T6, M3 |
@@ -32,7 +32,7 @@ The long-term target is `docs/tracks/pydyna-roadmap.md` (saved unchanged). This 
 
 Decisions (user, 22 Nov 2026): (1) capability registry is milestone M7 on `main`; (2) where the include-tree pilot goes (T6 proposed) is decided later; (3) ansys-dpf-post is installed on Linux (record its version with the next local check).
 
-The roadmap's "Immediate Next Sprint" is split: A (baseline) done; B and C are CR-2 on `main`; D is M3 on `main`; E (include-tree pilot) is T6 plus the registry. In this track the next step is T1.2a.
+The roadmap's "Immediate Next Sprint" is split: A (baseline) done; B and C are CR-3 on `main`; D is M3 on `main`; E (include-tree pilot) is T6 plus the registry. In this track the next step is T1.2a.
 
 ## Working flow (user, 21 Nov 2026)
 Code, tests and plans are written in Databricks (`Champion-pydyna` Git folder). The knowledge data lives only on the Linux machine; checks that need it are run there by the user's local Codex agent (read only) and the output is pasted back. Tests that need the real data skip when it is missing and are listed under "Pending local checks".
@@ -105,10 +105,11 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 * **Waits:** committing T1.0 and the tools (user: push them together). Not chosen: renaming the group or switching it off by default (changes the tool name `pydyna_agent`), or editing core tests on the track (P.2).
 
 ### Proposed with the roadmap (22 Nov 2026, not yet raised on `main`)
-* **CR-2 Code artifacts:** `CodeArtifact` and `PatchArtifact` (roadmap PD-03) as shared types for code-writing agents, on top of the step 4d editing tools (which already cover read, create, exact patch with hash check, diff, undo).
-* **CR-3 Capability registry (M7, decided by the user 22 Nov 2026):** roadmap CAP-01..05 and PD-07 ingestion, with the rule engine of PD-08; shared by all specialists.
-* **CR-4 M3 scope:** add SandboxSession, working-copy staging, diff/commit/discard/rollback and a Bubblewrap backend (roadmap M3-A..D, PD-10) to M3.
-* **CR-5 Versions in config:** installed package versions (ansys-dyna-core, ansys-dpf-post) in the config and `champion doctor`.
+Numbers start at CR-3: `main` already has CR-2 (T8 Memory, M6 hook).
+* **CR-3 Code artifacts:** `CodeArtifact` and `PatchArtifact` (roadmap PD-03) as shared types for code-writing agents, on top of the step 4d editing tools (which already cover read, create, exact patch with hash check, diff, undo).
+* **CR-4 Capability registry (M7, decided by the user 22 Nov 2026):** roadmap CAP-01..05 and PD-07 ingestion, with the rule engine of PD-08; shared by all specialists.
+* **CR-5 M3 scope:** add SandboxSession, working-copy staging, diff/commit/discard/rollback and a Bubblewrap backend (roadmap M3-A..D, PD-10) to M3.
+* **CR-6 Versions in config:** installed package versions (ansys-dyna-core, ansys-dpf-post) in the config and `champion doctor`.
 
 ### Expected later
 For M1: `knowledge/*/vector_db/` in the root `.gitignore` (not ignored now; excluded locally through `.git/info/exclude`); the `pydyna` config section moved out of `config.py` `DEFAULTS`; optional dependency group `pydyna` lists chromadb and sentence-transformers without upper limits (local: 1.5.9 and 5.6.1).
@@ -117,6 +118,13 @@ For M1: `knowledge/*/vector_db/` in the root `.gitignore` (not ignored now; excl
 None.
 
 ## Findings and live checks
+* 22 Nov 2026, what is ready (my check on the Databricks copies):
+  * `main` is ahead of `track/pydyna`: it has CR-2 (T8 memory library `champion/memory/` and the M6 hook, `tests/memory/`, `tests/test_memory_m6.py`). Merge `main` into `track/pydyna` on Linux before the next code step.
+  * On `main` and here: no M1 (no knowledge layer), no M2, no M3 (no run framework or sandbox). Ready from step 4d: `file_edit` (several exact edits, expected SHA-256), `file_create`, `file_write`, `change_set_apply`, `/changes`, `/undo`, `code_check` (syntax of Python, JSON, YAML, TOML; compiles, never runs), `run_check` (only checks the user listed), `git_info`. So roadmap PD-03 needs only `CodeArtifact` / `PatchArtifact`.
+  * Already present for M1 (on both branches): optional dependency group `pydyna = ["chromadb>=0.5", "sentence-transformers>=2.3"]` in `pyproject.toml` (no upper limits); the `pydyna` config section is still in `config.py` `DEFAULTS`.
+  * ansys-dyna-core 0.12.1 wheel (downloaded here, not installed): 3199 keyword modules in `keywords/keyword_classes/auto/` (and `manual/`), 67209 `FieldSchema(name, type, position, width, default)` entries; `Mat024` has 30 fields over 4 cards plus option TITLE and curve links (`lcss`, `lcsr`). `*MAT_PIECEWISE_LINEAR_PLASTICITY` has its own module (`mat_piecewise_linear_plasticity.py`). `Deck` public API: 38 names (`import_file`, `export_file`, `append`, `extend`, `remove`, `get_kwds_by_type`, `get_kwds_by_full_type`, `get_section_by_id`, `get_set_by_id`, `materials`, `parts`, `split`, `plot`, ...).
+  * The keyword schema in the knowledge base is weaker than the package: `*MAT_024` has 8 fields of card 1 only, all typed `float` (`MID` is `int` in the package), descriptions "MID from schema". T1.2a can read the exact fields, types, defaults, cards and options from the installed package files (parsed with `ast`, nothing imported or run).
+  * The package ships agent guidance: `AGENT.md`, `agent/deck.md`, `agent/keywords.md`, `agent/patterns.md` (1368 lines). Candidate source for the PyDyna Code agent's instructions or a T1.6 skill (version-matched).
 * 21 Nov 2026, Linux (user), code searches after the folder filter (script "Check after the folder filter" in docs/steps/pydyna-02-tools.md, real database copy, `HF_HUB_OFFLINE=1`):
   * `search_pydyna_api` "create a deck with a shell part": raw top 10 had 7 hits from `tests/` and `codegen/manifest.json` (`keep=False`); the tool returned 5 from `examples/Optimization/Plate_Thickness_Optimization.py`, `doc/source/getting-started/example.rst`, `src/ansys/dyna/core/agent/patterns.md` (2 chunks), `src/ansys/dyna/core/lib/keyword_base.py`. Filter works.
   * `search_pydpf_post` "section force from binout": raw top 10 had 5 dropped (`requirements/`, `pytest.ini`, `.ci/`, `tests/`, `.github/`); the tool returned 5 from `src/` and `doc/`. Filter works, but the hits (`modal_mechanical_simulation.py`, `mesh.py`, `simulation.py`, distances 0.38-0.39) do not answer the question: PyDPF-Post may not read binout at all. To check in T1.3 (binout may need `ansys-dpf-core` or LS-DYNA's own reader); the T1.3 Verify question may need to change.
