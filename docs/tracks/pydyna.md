@@ -5,6 +5,35 @@ Branch `track/pydyna`, package `champion/specialists/pydyna/`, tests `tests/pydy
 ## Goal
 One group `pydyna_agent` with 3 sub-agents (user, 20 Nov 2026): Keyword Lookup, PyDyna Code, PyDPF-Post. Tools ported from PyDyna_Agent (read only there).
 
+## Roadmap (user, 22 Nov 2026) and where each phase is built
+The long-term target is `docs/tracks/pydyna-roadmap.md` (saved unchanged). This table maps its phases to the parallel plan (PLAN.md P.2 ownership: a track never edits `champion/core/`, `policy/`, `execution/`, `tools/`, `config.py`). Shared parts go to `main` as core requests or milestones; parts of other tracks stay there.
+
+| Roadmap phase | Built where | State / next |
+| --- | --- | --- |
+| PD-00 Knowledge records | T1.0 (this track) | Done, real data checked (21 Nov 2026) |
+| PD-01 Retrieval tools | T1.1a here; version filter, type filters, exact symbol first -> T1.1 with M1 | Category filter and folder filter done; rest with M1 |
+| PD-02 Specialist group | T1.1a here | Done (group `pydyna`, 3 sub-agents, read only) |
+| BASE-01 Linux baseline | here | Done (326 passed, real search, ansys-dyna-core 0.12.1); ansys-dpf-post installed on Linux (user, 22 Nov 2026; version still to record); versions in config = core request (`config.py` shared) |
+| PD-03 CodeArtifact, PatchArtifact, coder | `main`: step 4d already has the coder tools (`file_edit` exact edits, change sets, hash check, diff, undo); `CodeArtifact` / `PatchArtifact` = proposed CR-2 | Proposed |
+| PD-04 Version-aware API catalog | T1.2a here (from the installed ansys-dyna-core 0.12.1; no core change) | Next track step (proposed) |
+| PD-05 Code and API checker | Generic AST, security and path checks: M3 on `main`; PyDyna API signature check: T1.2b here (uses T1.2a) | Planned |
+| PD-06 LLM semantic reviewer | M3 reviewer on `main`; PyDyna evidence (API records, rules) from this track | Planned |
+| PD-07 Script ingestion and reuse | Generic ingestion: capability registry on `main`; PyDyna API and version checks of a script: here | Planned |
+| CAP-01..05 Capability registry, maturity, ranking, versioning | `main`, new shared milestone M7 (CR-3; user, 22 Nov 2026): used by Linux, HPC, ANSA/META too | Decided, to raise on `main` |
+| PD-08 Modeling rules | Rule engine and precedence: `main` (with M3 / M7, CR-3); PyDyna rule content: here (`knowledge/pydyna/`) | Planned. Note: `*MAT_024` and `*MAT_PIECEWISE_LINEAR_PLASTICITY` are two keywords in PyDyna; a rule must list both |
+| PD-09 PyDPF code generation | T1.3 here | ansys-dpf-post installed (user, 22 Nov 2026); open: binout support (search found nothing for "section force from binout") |
+| M3-A..D Sandbox, staging, diff/commit, Bubblewrap | M3 on `main` (scope extended, proposed CR-4) | Proposed |
+| PD-10 Run and repair loop | M3 on `main`; PyDyna use: T1.4 here | Needs M3 |
+| PD-11 Model read tools, include-tree pilot | T6 (`champion/lsdyna/`, track/vehicle-model) proposed | Undecided (user decides later) |
+| PD-12 Model modification | T6 library + M3 sandbox; PyDyna use: T1.5 here | Needs T6, M3 |
+| PD-13 Engineering model validation | T6 | Planned there |
+| PD-14 Reusable CAE skills | T5 framework; PyDyna skills: T1.6 here | Needs T5 |
+| PD-15 HPC | T2 | Planned there |
+
+Decisions (user, 22 Nov 2026): (1) capability registry is milestone M7 on `main`; (2) where the include-tree pilot goes (T6 proposed) is decided later; (3) ansys-dpf-post is installed on Linux (record its version with the next local check).
+
+The roadmap's "Immediate Next Sprint" is split: A (baseline) done; B and C are CR-2 on `main`; D is M3 on `main`; E (include-tree pilot) is T6 plus the registry. In this track the next step is T1.2a.
+
 ## Working flow (user, 21 Nov 2026)
 Code, tests and plans are written in Databricks (`Champion-pydyna` Git folder). The knowledge data lives only on the Linux machine; checks that need it are run there by the user's local Codex agent (read only) and the output is pasted back. Tests that need the real data skip when it is missing and are listed under "Pending local checks".
 
@@ -20,7 +49,7 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 * Embedding `BAAI/bge-small-en-v1.5` on CPU, vector length 384 (checked in the stored database); model is in the local Hugging Face cache, loading without internet not yet verified.
 * Builder that matches the data: `sacreate.py` (`--keywords`, `--vec`, `--post`). `bin/build_vector_db.py` is outdated (indexes only the 5 docs into `pydyna_api`); do not port it.
 * `keyword_schema.jsonl` and `pydpf_post_source.jsonl` exist only locally (ignored by `*.jsonl` in that repo). The PyDyna and PyDPF-Post source checkouts used to generate them are gone, so these files cannot be regenerated now; they are copied as they are.
-* Local versions: Python 3.11.2, chromadb 1.5.9, sentence-transformers 5.6.1, ansys-dyna-core 0.12.1, ansys-dpf-core 0.16.3; ansys-dpf-post not installed.
+* Local versions: Python 3.11.2, chromadb 1.5.9, sentence-transformers 5.6.1, ansys-dyna-core 0.12.1, ansys-dpf-core 0.16.3; ansys-dpf-post installed (user, 22 Nov 2026; version not yet recorded).
 * Not ported: 4 LLM backends, Gradio apps, JSONL/SQLite logging, analytics, admin and log agent, `config_secrets.py`, `certs/` (Champion runtime, audit and TUI cover these).
 
 ## Problems found in the source (fixed in the port)
@@ -34,6 +63,8 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 ## Sub-steps
 - [x] T1.0 Data and records (no M1 needed; built 21 Nov 2026, walkthrough docs/steps/pydyna-01-records.md, 294 passed + 5 skipped on serverless): JSONL files in `knowledge/pydyna/knowledge-base/` (Linux worktree only, not in Git); pure-Python record layer in `champion/specialists/pydyna/records.py` (load JSONL, merge curated keywords over generated, stable ids, PyDPF-Post file filter, record -> document text and metadata as in `sacreate.py`, field type check); unit tests on small fixtures in `tests/pydyna/fixtures/` run here; `tests/pydyna/test_pydyna_data.py` checks the real files (counts 3685 + 5 -> 3686 keywords, 62328 API records, 1719 PyDPF-Post before the filter, keys per file, curated keywords present in the schema, `*MAT_024` merged has more than 5 fields) and skips when the data is missing. Verify: unit tests pass here; real-data tests pass on Linux (pending local check).
 - [x] T1.1a Tools and group on a search stub (built 21 Nov 2026, walkthrough docs/steps/pydyna-02-tools.md, 310 passed + 5 skipped on serverless): group `pydyna` with `pydyna_keyword`, `pydyna_code`, `pydyna_dpf_post`; tools `lookup_keyword`, `validate_keyword_params`, `search_keyword` (category filter), `search_pydyna_api`, `search_pydpf_post`; search through `search.py` until M1. Verify: unit tests here; real searches on Linux (pending local check).
+- [ ] T1.2a PyDyna API catalog (roadmap PD-04; no M1 or core change needed): records of classes, methods and keyword classes with parameters, required/optional, types, defaults and returns, built by introspection of the installed ansys-dyna-core (0.12.1) with package version and source path; exact symbol lookup tool. Verify: `Deck`, a keyword class such as `Mat024` and an unknown name are answered from the catalog with version and source.
+- [ ] T1.2b PyDyna API signature check (roadmap PD-05, PyDyna part; uses T1.2a): unknown classes, methods and arguments, missing required arguments in a script, reported with line. Verify: a script with a wrong argument is reported, a correct one passes. Hooks into M3 `code_check` when M3 exists.
 - [ ] T1.1 Keyword Lookup (needs M1): switch the search to M1 and remove `search.py`. Verify: `*MAT_024` returns the full card fields plus the curated aliases and units, with source; a material question with `category="material"` returns only `*MAT_*`.
 - [ ] T1.2 PyDyna Code (needs M1): `search_pydyna_api` over docs + source chunks, templates; writes PyDyna (`ansys-dyna-core`) scripts into the working folder, no run. Verify: a deck-building script passes `code_check`.
 - [ ] T1.3 PyDPF-Post (needs M1): `search_pydpf_post` on the filtered collection, d3plot/binout scripts. Verify: top hits for "section force from binout" come from source or examples, and a section-force or energy curve script passes `code_check`.
@@ -72,6 +103,12 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 * **Tried on a copy of `track/pydyna` (21 Nov 2026, serverless):** without the fixture 11 failed, 297 passed; with it 308 passed, 5 skipped. On a copy of `main` with the fixture: 269 passed, as without it. A first version that hid every non-core agent broke 12 tests that register their own dummy agents, so only agents found in track packages are hidden.
 * **Accept when:** on `main` the full suite passes as before; after merging `main` into `track/pydyna` the full suite passes with the `pydyna` group registered and on by default.
 * **Waits:** committing T1.0 and the tools (user: push them together). Not chosen: renaming the group or switching it off by default (changes the tool name `pydyna_agent`), or editing core tests on the track (P.2).
+
+### Proposed with the roadmap (22 Nov 2026, not yet raised on `main`)
+* **CR-2 Code artifacts:** `CodeArtifact` and `PatchArtifact` (roadmap PD-03) as shared types for code-writing agents, on top of the step 4d editing tools (which already cover read, create, exact patch with hash check, diff, undo).
+* **CR-3 Capability registry (M7, decided by the user 22 Nov 2026):** roadmap CAP-01..05 and PD-07 ingestion, with the rule engine of PD-08; shared by all specialists.
+* **CR-4 M3 scope:** add SandboxSession, working-copy staging, diff/commit/discard/rollback and a Bubblewrap backend (roadmap M3-A..D, PD-10) to M3.
+* **CR-5 Versions in config:** installed package versions (ansys-dyna-core, ansys-dpf-post) in the config and `champion doctor`.
 
 ### Expected later
 For M1: `knowledge/*/vector_db/` in the root `.gitignore` (not ignored now; excluded locally through `.git/info/exclude`); the `pydyna` config section moved out of `config.py` `DEFAULTS`; optional dependency group `pydyna` lists chromadb and sentence-transformers without upper limits (local: 1.5.9 and 5.6.1).
