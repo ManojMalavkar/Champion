@@ -25,6 +25,16 @@
 
 #tabs {
     width: 1fr;
+    height: 1fr;
+}
+
+#tabs > ContentSwitcher {
+    height: 1fr;
+}
+
+#tabs TabPane#conversation {
+    height: 1fr;
+    padding: 0;
 }
 
 #right {
@@ -55,6 +65,42 @@
 .note {
     color: #8a93a3;
     padding: 1 2;
+}
+
+/* Conversation (T9.3): user right, answers left, no labels */
+#conversation-log {
+    height: 1fr;
+    padding: 0 1;
+}
+
+.user {
+    width: 100%;
+    text-align: right;
+    margin: 1 0 0 10;
+}
+
+.answer {
+    margin: 1 10 0 0;
+}
+
+.action, .turn-note {
+    margin: 0 10 0 0;
+}
+
+#chat-input {
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+    border: round #1e3a5f;
+}
+
+#chat-input:focus {
+    border: round #12b8f5;
+}
+
+#input-hint {
+    color: #5f6b7a;
+    padding: 0 1;
 }
 
 #too-small {

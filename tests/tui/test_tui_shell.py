@@ -77,7 +77,7 @@ def test_tui_shell_layout_tabs_footer_and_right_panel(tmp_path):
         assert tabs.active == "hpc" and "track T2" in text_of(app, "#hpc-note")
         tabs.active = "conversation"
         await pilot.pause()
-        assert "T9.3" in text_of(app, "#conversation-note")  # content kept after switching
+        assert app.query_one("#chat-input") is not None  # conversation tab kept after switching
         assert text_of(app, "#llm") == "LLM: test-model"
         assert text_of(app, "#tokens") == "Total Tokens: 0"
         assert text_of(app, "#clock") == "Current Time: 22:40:12"
