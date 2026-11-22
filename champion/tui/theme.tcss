@@ -1,0 +1,66 @@
+/* Champion TUI shell (T9.1). Colours of the logo: #0b3dff (blue) to #13ecf5 (cyan). */
+
+#main {
+    height: 1fr;
+}
+
+#header {
+    height: 6;  /* 5 rows of logo + bottom border */
+    border-bottom: solid #1e3a5f;
+}
+
+#header-text {
+    width: 1fr;
+    padding: 0 1;
+}
+
+#title {
+    text-style: bold;
+    color: #12b8f5;
+}
+
+#body {
+    height: 1fr;
+}
+
+#tabs {
+    width: 1fr;
+}
+
+#right {
+    width: 30;
+    min-width: 24;
+    border-left: solid #1e3a5f;
+    padding: 0 1;
+}
+
+#right Panel {
+    margin-bottom: 1;
+}
+
+#footer {
+    height: 1;
+    background: #1b1f27;
+}
+
+#footer Panel, #footer Static {
+    width: auto;
+    padding: 0 1;
+}
+
+.sep {
+    color: #1e3a5f;
+}
+
+.note {
+    color: #8a93a3;
+    padding: 1 2;
+}
+
+#too-small {
+    display: none;
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    color: #ffb000;
+}
