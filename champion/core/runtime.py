@@ -18,10 +18,18 @@ Design points:
   cost and context size bounded. ``new_session()`` forgets everything.
 * The access level (``level`` argument, else ``policy.default_level``) and
   the audit log (``storage.audit_db``) live in the run context (step 2).
+* M6 (CR-2), only with ``memory.enabled``: the history is chosen by the
+  memory library (``memory.max_turns`` turns within ``memory.max_tokens``,
+  older tool outputs cut); each ``ask()`` is one runtime-state request (L0)
+  ended as done, failed or cancelled; turns dropped from the history are
+  summarised right after the turn with the same model (L2). A failing
+  summary never fails the turn. ``new_session()`` also clears the working
+  memory.
 """
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import uuid
 from dataclasses import dataclass, field
@@ -79,13 +87,14 @@ def keep_last_turns(history: list, new_input: list, max_turns: int) -> list:
     return list(history) + list(new_input)
 
 
-def make_run_config(config: Config) -> RunConfig:
+def make_run_config(config: Config, memory: Any = None) -> RunConfig:
+    callback = memory.session_callback() if memory is not None else functools.partial(
+        keep_last_turns, max_turns=config.get("orchestration.history_turns"))
     return RunConfig(
         tracing_disabled=not config.get("llm.tracing"),
         trace_include_sensitive_data=False,
         workflow_name="Champion",
-        session_input_callback=functools.partial(
-            keep_last_turns, max_turns=config.get("orchestration.history_turns")),
+        session_input_callback=callback,
     )
 
 
@@ -134,7 +143,13 @@ class ChampionRuntime:
         self.context.specialists = [spec.tool_name for spec in self.specialists]
         self.context.sub_agents = {spec.tool_name: [m.tool_name for m in spec.members]
                                    for spec in self.specialists if spec.members}
-        self.run_config = make_run_config(config)
+        self.memory = None
+        if config.get("memory.enabled"):
+            from champion.memory.hook import MemoryHook
+
+            self.memory = MemoryHook(config, self.context.working_directory)
+        self.context.memory = self.memory
+        self.run_config = make_run_config(config, self.memory)
         self.max_turns = config.get("orchestration.max_steps")
         self.total_usage = TurnUsage()
         self.new_session()
@@ -142,6 +157,8 @@ class ChampionRuntime:
     def new_session(self) -> None:
         self.session = SQLiteSession(f"champion-{uuid.uuid4().hex}")  # in memory only
         self.notes: list[str] = []
+        if getattr(self, "memory", None) is not None:
+            self.memory.new_session(self.session.session_id)
 
     def add_note(self, note: str) -> None:
         """Tell the model about something the user did outside the conversation (for
@@ -161,6 +178,11 @@ class ChampionRuntime:
         recorder = ToolEventRecorder(on_tool_event)
         self.context.recorder = recorder  # specialists' nested tool calls report here
         self.context.declined = set()  # a "no" holds for the rest of this turn
+        memory = self.memory
+        if memory is not None:
+            memory.start_request(text, agent=getattr(self.agent, "name", "") or "Champion",
+                                 access=self.context.level.describe())
+        status, error = "failed", ""
         try:
             result = await Runner.run(
                 self.agent,
@@ -171,9 +193,32 @@ class ChampionRuntime:
                 run_config=self.run_config,
                 session=self.session,
             )
+            status = "done"
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            status, error = "cancelled", "cancelled by the user (Ctrl-C)"
+            raise
+        except BaseException as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
         finally:
             self.context.recorder = None
+            if memory is not None:
+                memory.finish_request(status, error)
         raw = result.context_wrapper.usage
         usage = TurnUsage(raw.requests, raw.input_tokens, raw.output_tokens, raw.total_tokens)
+        if memory is not None:
+            self._summary_usage = TurnUsage()
+            await memory.summarize_dropped(self._call_summary_model)
+            usage.add(self._summary_usage)
         self.total_usage.add(usage)
         return TurnResult(text=str(result.final_output), tool_events=recorder.events, usage=usage)
+
+    async def _call_summary_model(self, instructions: str, text: str) -> str:
+        """One model call without tools for an L2 summary (same model, tracing as the main run)."""
+        agent = Agent(name="Champion summary", instructions=instructions, model=self.model)
+        result = await Runner.run(agent, text, max_turns=1, run_config=RunConfig(
+            tracing_disabled=not self.config.get("llm.tracing"), trace_include_sensitive_data=False,
+            workflow_name="Champion summary"))
+        raw = result.context_wrapper.usage
+        self._summary_usage.add(TurnUsage(raw.requests, raw.input_tokens, raw.output_tokens, raw.total_tokens))
+        return str(result.final_output)

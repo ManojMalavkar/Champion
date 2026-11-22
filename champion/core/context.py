@@ -20,6 +20,10 @@ Step 4e: ``level`` is the per-folder access list (``policy/access.py``);
 the old levels are presets of it. ``access_file`` is where ``/access save``
 writes (``None`` = saving is off, as in tests); ``access_warnings`` are
 folders from the config or the saved file that were skipped at start.
+
+M6 (CR-2): ``memory`` is the ``MemoryHook`` (``champion/memory/hook.py``)
+with the running request's runtime state (L0), the working memory (L1) and
+the project memory folder; ``None`` when ``memory.enabled`` is false.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from champion.core.config import Config
 from champion.policy.access import PRESETS, AccessLevel, build_access, preset_level
 
 if TYPE_CHECKING:
+    from champion.memory.hook import MemoryHook
     from champion.storage.audit import AuditLog
 
 
@@ -51,6 +56,7 @@ class ChampionContext:
     declined: set[str] = field(default_factory=set)  # fingerprints the user said no to in this turn
     access_file: Path | None = None  # where /access save writes; None = saving off
     access_warnings: list[str] = field(default_factory=list)
+    memory: "MemoryHook | None" = None  # M6; None = memory off
 
     @property
     def access_level(self) -> str:

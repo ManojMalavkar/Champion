@@ -16,6 +16,10 @@ wildcard expansion, the level changed), the command does not run.
 
 Without an approver (``champion chat -q``, tests) every approval request is
 refused: nothing that needs a yes runs unattended.
+
+M6: with memory on, the request is stored as an open approval (runtime state
+and working memory) while the prompt is shown, and the answer after it. The
+memory never answers: only the approver (the user at the prompt) does.
 """
 
 from __future__ import annotations
@@ -90,10 +94,20 @@ def ask(context: ChampionContext, request: ApprovalRequest) -> None:
         raise PolicyDenied("the user already declined this exact request in this turn; it is not asked again "
                            "and nothing was run or changed. Do not retry it. Tell the user it was not done "
                            "because they declined")
+    memory = getattr(context, "memory", None)
+    label = f"{request.tool} ({request.command_class}): {shlex.join(request.argv)[:300]}"
+    approval_id = None
+    if memory is not None:
+        approval_id = memory.approval_asked(tool=request.tool, label=label, summary=request.describe(),
+                                            fingerprint=request.fingerprint)
+    approved = False
     try:
         approved = bool(context.approver(request))
     except (EOFError, KeyboardInterrupt):
         approved = False
+    finally:
+        if memory is not None:
+            memory.approval_answered(approval_id, approved, label)
     if not approved:
         if declined is not None:
             declined.add(request.fingerprint)

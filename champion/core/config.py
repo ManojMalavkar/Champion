@@ -119,6 +119,19 @@ DEFAULTS: dict[str, Any] = {
         "max_source_file_bytes": 2 * MiB,
     },
     "mcp": {"enabled": False, "servers": {}},
+    "memory": {  # M6 (CR-2): memory layers L0-L3 (champion/memory/); off until checked on Linux
+        "enabled": False,
+        "max_turns": 8,            # earlier turns sent with a request (replaces orchestration.history_turns)
+        "max_tokens": 16000,       # estimated budget for earlier turns + the new input
+        "tool_output_chars": 2000,  # tool outputs of older turns are cut to this
+        "full_tool_turns": 2,      # the last N turns keep their tool outputs whole
+        "runtime_state": True,     # L0: <working folder>/.champion/runtime/
+        "keep_archived": 50,       # ended requests kept in runtime/archive/
+        "summaries": True,         # L2: dropped turns are summarised after the turn
+        "preferences": True,       # L3: /memory set ...
+        "user_root": "~/.champion/memory",  # ~ = the real home folder
+        "project": None,           # folder whose .champion/memory keeps the summaries; None = user_root
+    },
 }
 
 # Sections whose sub-keys are free (new agents, MCP servers, kb projects).
@@ -368,6 +381,12 @@ def _resolve_paths(data: dict, root: Path, cwd: Path) -> None:
     extra = data["policy"]["custom"].get("extra_dirs")
     if isinstance(extra, list):
         data["policy"]["custom"]["extra_dirs"] = [_resolve(d, cwd) for d in extra]
+    memory = data["memory"]
+    for key, base in (("user_root", root), ("project", cwd)):
+        if isinstance(memory.get(key), str) and memory[key]:
+            from champion.policy.scope import expand_home  # ~ = real home (links resolved)
+
+            memory[key] = _resolve(expand_home(memory[key]), base)
 
 
 # --------------------------------------------------------------- validation
@@ -507,6 +526,29 @@ def validate(data: dict) -> list[str]:
     for name, agent in data["agents"].items():
         if not isinstance(agent, Mapping) or not isinstance(agent.get("enabled", True), bool):
             errors.append(f"agents.{name} must be a mapping with 'enabled: true/false'")
+    errors.extend(_validate_memory(data["memory"]))
+    return errors
+
+
+def _validate_memory(memory: Mapping[str, Any]) -> list[str]:
+    from champion.memory.storage import MemoryRefused
+    from champion.memory.working import WorkingSettings
+
+    errors = [f"memory.{key} must be true or false (got {memory[key]!r})"
+              for key in ("enabled", "runtime_state", "summaries", "preferences") if not isinstance(memory[key], bool)]
+    try:  # the same ranges the library checks
+        WorkingSettings(max_turns=memory["max_turns"], max_tokens=memory["max_tokens"],
+                        tool_output_chars=memory["tool_output_chars"], full_tool_turns=memory["full_tool_turns"])
+    except MemoryRefused as exc:
+        errors.append(f"memory.{str(exc).removeprefix('working memory: ')} (got "
+                      f"{ {k: memory[k] for k in ('max_turns', 'max_tokens', 'tool_output_chars', 'full_tool_turns')} })")
+    keep = memory["keep_archived"]
+    if not _is_int(keep) or not 0 <= keep <= 10000:
+        errors.append(f"memory.keep_archived must be a whole number from 0 to 10000 (got {keep!r})")
+    if not isinstance(memory["user_root"], str) or not memory["user_root"]:
+        errors.append("memory.user_root must be a folder path")
+    if memory["project"] is not None and not (isinstance(memory["project"], str) and memory["project"]):
+        errors.append("memory.project must be a folder path or null")
     return errors
 
 

@@ -17,6 +17,9 @@ can answer, so such commands are refused.
 
 Step 4e: ``/access`` shows and changes the per-folder access list (read or
 edit per folder, plus everything else); see ``access_commands.py``.
+
+M6 (CR-2): ``/memory`` shows and changes the memory (``memory/commands.py``);
+at start, requests of this working folder that never ended are listed.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from champion.access_commands import chat_access
 from champion.core.config import ACCESS_LEVELS
 from champion.core.hooks import ToolEvent
 from champion.core.runtime import ChampionRuntime
+from champion.memory.commands import memory_command
 from champion.policy.levels import BUILT_IN
 from champion.policy.scope import PolicyDenied
 from champion.tools.changes import changes_text, turn_summary, undo
@@ -48,7 +52,8 @@ HELP = """Commands:
   /changes       files changed in this session, newest first
   /undo          undo the last tool call's changes (file tools: edit, create, write, change set, organize)
   /undo N        undo change number N
-  /new           start a new conversation (forget history)
+  /new           start a new conversation (forget history and working memory)
+  /memory        memory status (/memory help for preferences, summaries, project ...)
   /usage         tokens used in this chat
   /exit          quit (also /quit or Ctrl-D)"""
 
@@ -202,6 +207,8 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
     """
     audit = runtime.context.audit
     changes_before = audit.change_count() if audit is not None else 0
+    memory = getattr(runtime.context, "memory", None)
+    problems_before = memory.problem_count if memory is not None else 0
     try:
         turn = await runtime.ask(text, on_tool_event=lambda e: write(format_event(e)))
     except MaxTurnsExceeded:
@@ -218,6 +225,8 @@ async def answer(runtime: ChampionRuntime, text: str, write: Callable[[str], Non
     summary = turn_summary(runtime.context, changes_before)
     if summary:
         write(summary)
+    if memory is not None and memory.problem_count > problems_before:  # one note per turn
+        write(f"  Memory: {memory.problems[-1]} (the answer is not affected; /memory)")
     return True
 
 
@@ -236,6 +245,12 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
         write(f"Warning: {problem}")
     for warning in runtime.context.access_warnings:
         write(f"Warning: {warning}")
+    memory = getattr(runtime.context, "memory", None)
+    if memory is not None:
+        unfinished = memory.unfinished()
+        if unfinished:
+            write(f"Note: {len(unfinished)} earlier request(s) in this folder never ended "
+                  f"({', '.join(s.request_id for s in unfinished[:5])}); /memory unfinished")
     runtime.context.approver = make_approver(read_line, write, pending)
 
     def confirm(prompt: str) -> bool:
@@ -272,6 +287,8 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
             write(changes_text(runtime.context))
         elif command == "/undo":
             write(undo_command(runtime, argument.strip()))
+        elif command == "/memory":
+            write(memory_command(runtime, argument))
         elif line == "/new":
             runtime.new_session()
             write("New conversation started.")
