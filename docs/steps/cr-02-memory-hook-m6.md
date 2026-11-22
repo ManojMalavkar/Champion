@@ -110,10 +110,10 @@ Results (Databricks serverless, fresh copy): `main` 339 passed
 (271 before + 50 library + 18). Mutation check: 12 changes that break a hook
 (guard, approval, summary, failed-as-done, never finished, no runtime state,
 no validation, memory always on, no `/memory`, no audit ID, `/new` keeps
-working memory, specialist gets all blocks); 11 were caught. The last one
-was not (the test called the hook directly); the instruction test now
-renders through `with_current_level` for a specialist agent, and the re-run
-of that mutation is still to do.
+working memory, specialist gets all blocks); 11 were caught at once. The
+last one was missed first (the test called the hook directly); the
+instruction test now renders through `with_current_level` for a specialist
+agent, and the re-run catches it (1 failed, 17 passed). All 12 caught.
 
 ## How to verify (Linux)
 
