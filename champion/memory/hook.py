@@ -72,6 +72,8 @@ class MemoryHook:
         self.problem_count = 0  # all problems so far (the chat shows one note per turn)
         self._lock = threading.RLock()  # approvals run in a worker thread, tool rows on the event loop
         self.new_session(session_id)
+        if self.runtime_store is not None:  # temp files of a stopped write (older than 5 minutes): always safe
+            self._safe("runtime state", self.runtime_store.remove_stale_temp_files)
 
     # ---------------------------------------------------------------- basics
     @property

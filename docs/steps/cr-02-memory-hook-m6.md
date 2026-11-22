@@ -137,7 +137,8 @@ Found:
   one is a start in another chat that is still writing), and
   `/memory unfinished close` archives it as failed and removes `.tmp-*.json`
   files older than 5 minutes (first one hour: the live `.tmp` file of about
-  30 minutes stayed)
+  30 minutes stayed); since the next live run such files are also removed
+  at chat start, without a command (`test_old_temp_files_are_removed_at_start`; 342 passed)
   (`test_empty_request_file_of_a_killed_chat_is_listed_and_closed`, fails
   without the fix); 341 passed. Live: REQ-0008 listed at start and archived
   as failed.

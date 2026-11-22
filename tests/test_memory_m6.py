@@ -311,6 +311,20 @@ def test_empty_request_file_of_a_killed_chat_is_listed_and_closed(tmp_path):
     assert not empty.exists() and not temp.exists() and young.exists()
 
 
+def test_old_temp_files_are_removed_at_start(tmp_path):
+    """Live check 22 Nov 2026: the .tmp file stayed when the user did not run /memory unfinished close."""
+    config, work = make_config(tmp_path)
+    folder = work / ".champion" / "runtime"
+    folder.mkdir(parents=True)
+    old, young = folder / ".tmp-old.json", folder / ".tmp-young.json"
+    old.write_text("{}")
+    young.write_text("{}")  # a write of another chat that is running now
+    then = time.time() - 600
+    os.utime(old, (then, then))
+    runtime_for(config, [])
+    assert not old.exists() and young.exists()
+
+
 def test_nested_calls_carry_the_sub_agent_name(tmp_path):
     config, work = make_config(tmp_path)
     runtime, _ = runtime_for(config, [])
