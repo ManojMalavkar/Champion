@@ -1621,8 +1621,9 @@ Decided with the user on 20 Nov 2026: after step 4d, several agents are built at
 | T4 | PRIMER | `track/primer` | `Champion-primer` | `primer_agent`: Oasys PRIMER JavaScript knowledge, script writing, PRIMER batch tasks |
 | T5 | Skills | `track/skills` | `Champion-skills` | Skills framework (former L1), skill authoring rules and checks, first shared skills |
 | T6 | Full vehicle model | `track/vehicle-model` | `Champion-vehicle` | Shared LS-DYNA library for 1-8 GB models (former step 7 and L3) and a `model_agent` for whole-model questions |
-| T7 | Core and fixes | `main` | `Champion-git` | Shared foundations every track needs (P.3), the TUI (former step 6), fixes reported by tracks, integration (L6) and hardening (L7) |
+| T7 | Core and fixes | `main` | `Champion-git` | Shared foundations every track needs (P.3), fixes reported by tracks, integration (L6) and hardening (L7) |
 | T8 | Memory | `track/memory` | `Champion-memory` | Memory library `champion/memory/`: conversation memory (decisions, preferences, previous work, current task), project memory in a folder the user selects (decisions, engineering lessons, model and program structure), compaction of older turns, save rules (partly user, partly agent), retrieval; SOPs as skills (T5). Hooked into the chat by M6 |
+| T9 | TUI | `track/tui` | `Champion-tui` | Textual TUI (former step 6 / M4) in its own package `champion/tui/`, built on the existing runtime and chat functions; panels for tool lines, approvals, access, changes, audit and agents (from the registry, so new agents and sub-agents appear without TUI changes) |
 
 Each Databricks Git folder has one branch checked out, so each track gets its own Git folder (same remote) and its own Genie Code thread; on the Linux machine `git worktree add ../Champion-<track> track/<track>`. One thread works in one folder only.
 
@@ -1644,7 +1645,7 @@ Each Databricks Git folder has one branch checked out, so each track gets its ow
 | M1 | Knowledge layer (read side; former step 5 base and L5 read) | T1, T3, T4 | Open a knowledge root inside the project folder, one per agent (`knowledge/pydyna/`, `knowledge/ansa_meta/`, `knowledge/primer/`, each with `vector_db/` Chroma and `knowledge-base/` JSONL; see "Knowledge base layout"), search and lookup tool factory with sources and distances, same embedding model as the databases, `champion doctor` checks, read only |
 | M2 | Program tools (step 4c generalised) | T2, T3, T4, T6 | Trusted external programs and scripts (`mjob`, ANSA/META/PRIMER batch, user scripts) declared in a manifest: path and SHA-256, argument template with typed slots, class (read, edit, delete, remote), environment (licences, modules), time limit, approval rule; refused if the file changed |
 | M3 | Code execution framework (former L4) | T1, T3, T4 | Generated script -> static check (Python AST; JavaScript rules for PRIMER) -> reviewer agent (policy and intent) -> user approval bound to the code hash -> backend run in a run folder under an edit folder; backends: host Python (PyDyna, PyDPF-Post), ANSA batch, META batch, PRIMER batch; outputs and logs captured |
-| M4 | Textual TUI (former step 6) | demo | As planned in step 6; panels come from the registry, so new agents appear without TUI changes |
+| M4 | Textual TUI (former step 6) | demo | Moved to track T9 (`track/tui`, user, 20 Nov 2026); on `main` only its core requests: `champion tui` command in `cli.py`, and an async approval hook if the TUI needs one |
 | M5 | MCP framework (former L2) | later | As planned in L2 |
 | M6 | Memory hook (CR of T8) | T8 | Runtime: older turns compacted into a summary instead of dropped (`orchestration.history_turns` stays the number of raw turns); relevant memory items added to the orchestrator's instructions; memory tools for the orchestrator; `/memory` commands in the chat; memory files go through the access rules. Built after T8.1-T8.3 exist; independent of M1-M3 |
 
@@ -1692,16 +1693,24 @@ M0 is one step. M1 and M2 can be built at the same time by two threads on `main`
 * T6.3 Numbering ranges per include file and the PART -> SECTION -> MAT graph.
 * T6.4 Compare two iterations of a model (which includes, parts, materials changed).
 * T6.5 Keyword-aware edits (former L3) on the streaming patch engine of `file_edit`, with diff, approval and undo.
+* Verify: outline and find on a model over 1 GB; the second question uses the cached index.
 
 **T8 Memory (`track/memory`)** - library `champion/memory/`, tests `tests/memory/`; details in `docs/tracks/memory.md`. Today each request sends the last `orchestration.history_turns` turns as raw messages and nothing is kept after the chat ends.
 * T8.1 Store: memory items (kind, text, source, date, scope) in separate places: conversation memory per user (`~/.champion/memory/`), project memory in the folder the user selects (`/memory project <folder>`); nothing project-related is saved while no project is selected. Verify: items written, read, edited, forgotten; secrets refused.
 * T8.2 Compaction: summary of older turns (decisions, current task, previous work) with the configured model; fake-model tests.
 * T8.3 Retrieval: items relevant to a question (keywords first; embeddings after M1).
-* T8.4 Save rules: what the agent saves by itself (and says so), what it proposes and the user confirms, what only the user adds (P.8 decision 10).
+* T8.4 Save rules as confirmed in P.8 decision 10: what the agent saves by itself (and says so), what it proposes and the user confirms, what the user adds.
 * T8.5 `/memory` command logic (list, show, add, edit, forget, project).
 * T8.6 Integration through M6 (core request).
 * T8.7 SOPs as skills (needs T5; P.8 decision 11, may change).
-* Verify: outline and find on a model over 1 GB; the second question uses the cached index.
+
+**T9 TUI (`track/tui`)** - package `champion/tui/`, tests `tests/tui/` (Textual pilot, headless, fake model); details in `docs/tracks/tui.md`. Started with `python -m champion.tui` until the `champion tui` command lands (core request).
+* T9.1 App: chat panel with Markdown answers, input line, status bar (model, access level, tokens) on `ChampionRuntime`.
+* T9.2 Tool-line panel: live tool calls of every agent, indented for sub-agents (`Group/Member`).
+* T9.3 Approval dialog through `ChampionContext.approver`; a "no" ends the turn as in the chat.
+* T9.4 Panels: access (levels and folders), changes with undo, audit, agents and sub-agents from the registry.
+* T9.5 Slash commands as in the chat (`/access`, `/changes`, `/undo`, `/audit`, `/new`, `/help`) by reusing the chat functions.
+* T9.6 `champion tui` command (core request); later the memory panel (needs M6).
 
 **T7 Core (`main`)**: M0-M5 (P.3), core requests (P.6), fixes from all tracks, then L6 integration (all agents enabled together, routing tests with one question per agent and mixed questions, cross-agent skills) and L7 hardening.
 
@@ -1774,18 +1783,22 @@ One step inside a track, and a core request:
 
 ### P.6 Core requests (CR)
 
-None yet. Format: `CR-n (track, date): what - why - status`.
+Format: `CR-n (track, date): what - why - status`.
+
+* CR-1 (T1 PyDyna, 21 Nov 2026): core tests do not see agents of track packages - `tests/conftest.py` gets an autouse fixture: for tests directly in `tests/`, `registry.registered_specialists()` leaves out the agents that `load_builtin_specialists()` finds in track packages (everything except `coder` and `linux_coder`); agents a test registers itself stay visible; tests in `tests/<track>/` see all. Why: with the `pydyna` group registered (on by default, `agents.pydyna.enabled: True` in `DEFAULTS`), 11 core tests fail because they expect only Coder and Linux (test_filesystem_tools 1, test_linux_specialist 2, test_parallel_enablers 4, test_runtime 1, test_specialists 3); a track may not edit them. Built on `main` 21 Nov 2026 (`tests/conftest.py`, `tests/test_core_tests_hide_track_agents.py`, walkthrough `docs/steps/cr-01-core-tests-hide-track-agents.md`): `main` 271 passed; `track/pydyna` with it 310 passed, 5 skipped. Details: `docs/tracks/pydyna.md` (CR-1). Done; T1 merges `main` next.
+* CR-2 (T8 Memory, 21 Nov 2026): memory hook M6 - the memory library of `track/memory` (T8.1-T8.4, `a35412d`: `champion/memory/`, `tests/memory/`, copied unchanged) is on `main`, connected through one glue class `champion/memory/hook.py` (`MemoryHook`, `ChampionContext.memory`; `None` when off) and `champion/memory/commands.py` (`/memory`, reusable by the TUI). Shared files: `core/config.py` (section `memory`, `enabled: false` by default, ranges checked with `WorkingSettings`, `user_root` `~` = real home), `core/context.py` (field `memory`, instead of three separate fields), `core/runtime.py` (session callback from the library instead of `keep_last_turns`; each `ask()` one L0 request ended done/failed/cancelled; dropped turns summarised right after the turn with `llm.model_id`, each once; a failing summary never fails the turn), `storage/audit.py` (`record` returns the row ID), `tools/guard.py` (tool call + audit ID into L0, paths and IDs into L1), `execution/approval.py` (approval open in L0/L1 while the prompt is shown; memory never answers), `agents/orchestrator.py` (`with_current_level`: preferences for every agent, summaries and working memory only for the orchestrator, with a memory rule), `chat.py` (`/memory`, `/new` clears working memory, unfinished requests listed at start), `doctor.py` (one memory line). Why: T8.9 needs the hook and a track may not edit shared files. Built on `main` 21 Nov 2026 (`tests/test_memory_m6.py`, 18 cases; walkthrough `docs/steps/cr-02-memory-hook-m6.md`): `main` 339 passed (271 + 50 library + 18) on serverless. Live check on Linux done 22 Nov 2026 (`memory.enabled: true`, Claude Haiku 4.5): runtime state, approvals, Ctrl-C, preferences, secrets refused, summary of a dropped turn used for a later answer. Fixed from it (`main` 342 passed): the orchestrator is told it cannot save memory (it answered "Memory note set"); an empty request file of a stopped chat is listed and closed; stale `.tmp` files removed at chat start (library change in `runtime_state.py`, to go back to `track/memory`). Open: one chat ended once without "Bye." during the first save, not reproduced. Default stays `memory.enabled: false` until the user decides. Done; T8 merges `main` next.
 
 ### P.7 Track status
 
-* T1 PyDyna: branch created; not started (waits for M1). Plan: `docs/tracks/pydyna.md`
+* T1 PyDyna: T1.0 records and the 5 tools built on `track/pydyna` (not committed); CR-1 done, merges `main` next; search through a track-local stub until M1. Plan: `docs/tracks/pydyna.md`
 * T2 HPC: branch created; T2.0 can start, T2.1 waits for M2. Plan: `docs/tracks/hpc.md`
 * T3 ANSA/META: branch created; not started (waits for M1). Plan: `docs/tracks/ansa-meta.md`
 * T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
 * T5 Skills: branch created; can start. Plan: `docs/tracks/skills.md`
 * T6 Full vehicle model: branch created; can start. Plan: `docs/tracks/vehicle-model.md`
-* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); next M1 and M2; M6 after T8.1-T8.3
-* T8 Memory: branch created; T8.1-T8.5 can start (library and tests only). Plan: `docs/tracks/memory.md`
+* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); CR-1 and CR-2 (M6 memory hook) done; next M1 and M2
+* T8 Memory: T8.1-T8.4 (L0-L3 library, 50 tests) built on `track/memory` (`a35412d`) and now also on `main` through CR-2; M6 hook done (CR-2); T8.5+ wait for decisions D1-D5. Plan: `docs/tracks/memory.md`
+* T9 TUI: branch created; T9.1 can start. Plan: `docs/tracks/tui.md`
 
 #### M0 status (built 20 Nov 2026)
 - [x] Specialists found in `champion/specialists/` (modules and packages; broken packages reported, Champion still starts); `registry.py` names no specialist.
@@ -1809,7 +1822,7 @@ Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and k
 7. Knowledge databases: JSONL sources committed, `vector_db/` built locally and in `.gitignore`. Decided.
 8. HPC model access: `hpc_agent` uses Champion's configured model; the old agent's certificates are not used. Decided.
 9. Memory locations: memory is not kept in one place; it is divided into conversation memory, project memory and SOPs. The project memory folder is selected by the user. Decided (user, 20 Nov 2026).
-10. Who saves memory: partly the user, partly the agent. Decided (user, 20 Nov 2026); the exact split is proposed in `docs/tracks/memory.md` and confirmed in T8.4.
+10. Who saves memory: partly the user, partly the agent. Split confirmed by the user (20 Nov 2026), table in `docs/tracks/memory.md`: the agent saves current task, previous work, conversation summaries and model/program structure by itself and says so in the turn summary; decisions and engineering lessons are proposed by the agent and confirmed by the user; preferences are added by the user or proposed and confirmed; the user can add, edit and forget anything with `/memory`. Decided.
 11. SOPs are stored as skills (T5). Decided for now; the user is not fully sure and it may change (user, 20 Nov 2026).
 
 ## Full roadmap (after the demo)

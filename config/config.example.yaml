@@ -109,3 +109,18 @@ kb:
 mcp:
   enabled: false
   servers: {}
+
+# M6 memory (champion/memory/, /memory in the chat). Off until checked on Linux.
+# With enabled: true, memory.max_turns replaces orchestration.history_turns.
+memory:
+  enabled: false
+  max_turns: 8                      # earlier turns sent with a request (1-50)
+  max_tokens: 16000                 # estimated budget for earlier turns + the new input
+  tool_output_chars: 2000           # tool outputs of older turns are cut to this
+  full_tool_turns: 2                # the last N turns keep their tool outputs whole
+  runtime_state: true               # L0: <working folder>/.champion/runtime/
+  keep_archived: 50                 # ended requests kept in runtime/archive/
+  summaries: true                   # L2: turns dropped from the history are summarised
+  preferences: true                 # L3: /memory set KEY VALUE
+  user_root: ~/.champion/memory     # ~ = your real home folder
+  project: null                     # FOLDER: summaries in FOLDER/.champion/memory

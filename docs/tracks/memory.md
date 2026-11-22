@@ -1,6 +1,6 @@
 # Track T8 - Memory
 
-Branch `track/memory`, library `champion/memory/`, tests `tests/memory/`. Status 21 Nov 2026 (CR-2 for M6 drafted below): plan revised with the user's layered CAE memory design (Copilot review, pasted by the user). The user chose to build the Champion memory layers L0-L3 first: T8.1-T8.4 built 21 Nov 2026 (library and 50 tests, whole suite 319 pass on serverless; walkthrough `docs/steps/t8-memory-l0-l3.md`; pushed as `a35412d`; Linux check pending). The engineering records (T8.5 onwards) wait for decisions D1-D5. T8.9 needs core step M6.
+Branch `track/memory`, library `champion/memory/`, tests `tests/memory/`. Status 22 Nov 2026: T8.1-T8.4 (L0-L3 library) and T8.9 (integration through CR-2 / M6 on `main`) done; Linux live check passed 22 Nov 2026 (`memory.enabled: true`, Claude Haiku 4.5); `main` merged into `track/memory` 22 Nov 2026 (342 tests). `memory.enabled` stays `false` by default until the user decides. Open: one chat ended once without "Bye." during the first save (not reproduced). Next: T8.5 onwards (engineering records), waiting for decisions D1-D5. Walkthroughs: `docs/steps/t8-memory-l0-l3.md`, `docs/steps/cr-02-memory-hook-m6.md`.
 
 ## Goal
 Today each request sends the last `orchestration.history_turns` turns as raw messages; older turns are dropped and nothing is kept after the chat ends. Memory keeps what matters, in separate places, and sends only what is relevant.
@@ -89,7 +89,7 @@ Every item records its source (user, agent, file) and date. Secrets are never sa
 - [ ] T8.6 Engineering tables: `projects`, `models`, `model_files`, `simulation_jobs` (+ job events), `results_kpis`, `decisions`, `lessons`. Verify: a decision is refused as `approved` without evidence; a KPI without unit, source or extraction version is refused; model identity unique per Program+Variant+Release+Loadcase+ModelVersion; a changed file hash marks linked items out of date.
 - [ ] T8.7 Retrieval with the context guard (keywords first; embeddings after M1). Verify: an R06 item is not returned as a fact for an R07 question; out-of-date items flagged.
 - [ ] T8.8 Save rules (table above) + lifecycle transitions; `/memory` command logic: list, show, add, edit, forget, approve, reject, project, task.
-- [ ] T8.9 Integration through M6 (core request CR): L0 written by the runtime and tool wrapper, L1 as the session input callback (replaces `keep_last_turns`) plus a working-memory block in the instructions, L2 compaction of dropped turns, L3 block in the instructions; config section `memory`. CR to T2 (write job records), CR to T6 (model identity + include tree with hashes).
+- [x] T8.9 Integration through M6 (core request CR-2, built on `main` 21 Nov 2026, live check passed 22 Nov 2026, merged into `track/memory` 22 Nov 2026): L0 written by the runtime and tool wrapper, L1 as the session input callback (replaces `keep_last_turns`) plus a working-memory block in the instructions, L2 compaction of dropped turns, L3 block in the instructions; config section `memory`. CR to T2 (write job records), CR to T6 (model identity + include tree with hashes).
 - [ ] T8.10 Requirements table (versioned, approved only).
 - [ ] T8.11 SOPs as skills (needs T5).
 - Later: correlation memory (after T3 META), shared organisation-level store, PostgreSQL.
@@ -107,10 +107,16 @@ Every item records its source (user, agent, file) and date. Secrets are never sa
 
 ## Core requests (CR)
 
-Line for PLAN.md P.6 (to be added on `main`):
-`CR-2 (T8 Memory, 21 Nov 2026): M6 memory hook - L0-L3 used by runtime, tool guard, approvals, orchestrator instructions and chat (/memory); memory library a35412d on track/memory - waits: T8 integration (T8.9), later T8.8 /memory editing - status: draft, not yet on main`
+CR-2 is in PLAN.md P.6 (added on `main` 21 Nov 2026): built and tested on `main`; Linux live check passed 22 Nov 2026 (fixes on `main`: orchestrator told it cannot save memory, empty request files of a killed chat listed and closed, stale `.tmp` files removed at chat start). Done; merged into `track/memory` 22 Nov 2026.
 
-### CR-2 - M6 memory hook (draft 21 Nov 2026)
+### CR-2 - M6 memory hook (draft 21 Nov 2026; built on `main` 21 Nov 2026)
+
+**As built (differences from the draft below):**
+* `core/context.py` has one field `memory` (the `MemoryHook`), not three; the runtime state, working memory and project folder are attributes of the hook. All memory calls of the core go through it, and it catches every memory error (kept in `/memory`, one note line in the chat after the turn).
+* `/memory set KEY VALUE` and `/memory forget KEY` instead of `/memory pref ...`; also `show`, `prefs`, `keys`, `summaries`, `done ID#N`, `reject ID#N`, `unfinished [close]`, `clear`, `help`.
+* Unfinished requests at chat start are listed in one line but not archived automatically: another chat in the same working folder may still be running them. `/memory unfinished close` archives them as `failed`.
+* Open points: `enabled: false`; summary model `llm.model_id`; summary right after the turn.
+* `tests/test_memory_m6.py` (18 cases on `main`).
 
 Numbered CR-2 because CR-1 on `main` is the PyDyna track's request (core tests hide track agents, done 21 Nov 2026).
 

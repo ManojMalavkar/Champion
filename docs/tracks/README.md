@@ -11,6 +11,7 @@ One file per track: its sub-steps with checkboxes, decisions, findings and live-
 | T5 Skills | [skills.md](skills.md) | `track/skills` | `champion/skills/` |
 | T6 Full vehicle model | [vehicle-model.md](vehicle-model.md) | `track/vehicle-model` | `champion/lsdyna/`, `champion/specialists/model/` |
 | T8 Memory | [memory.md](memory.md) | `track/memory` | `champion/memory/` |
+| T9 TUI | [tui.md](tui.md) | `track/tui` | `champion/tui/` |
 
 ## Rules (PLAN.md P.2, short)
 

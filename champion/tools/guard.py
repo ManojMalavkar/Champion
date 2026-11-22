@@ -9,7 +9,9 @@
    unexpected ``OSError``) into ``ERROR: <reason>`` so the model gets a clear
    message instead of a crash;
 5. cap the text to ``execution.max_output_chars``;
-6. write one audit row.
+6. write one audit row;
+7. M6: with memory on, record the call in the request's runtime state (L0,
+   with the audit row ID) and note the paths and IDs of the arguments (L1).
 
 ``run_guarded_async`` is the same path for work that is itself async, such as
 a specialist agent called as a tool (step 3).
@@ -79,9 +81,14 @@ async def run_guarded_async(ctx: RunContextWrapper[ChampionContext], tool: str, 
         reason = exc.strerror or exc.__class__.__name__
         decision, text = "error", f"ERROR: {reason}"
     text = cap_output(text, context.config.get("execution.max_output_chars"))
+    agent = getattr(getattr(ctx, "agent", None), "name", "") or ""
+    audit_id = None
     if context.audit is not None:
-        agent = getattr(getattr(ctx, "agent", None), "name", "") or ""
-        context.audit.record(tool=tool, arguments=arguments, access_level=context.level.name,
-                             decision=decision, reason=reason, result_chars=len(text),
-                             seconds=time.monotonic() - started, agent=agent)
+        audit_id = context.audit.record(tool=tool, arguments=arguments, access_level=context.level.name,
+                                        decision=decision, reason=reason, result_chars=len(text),
+                                        seconds=time.monotonic() - started, agent=agent)
+    memory = getattr(context, "memory", None)
+    if memory is not None:  # never changes the result; memory problems are kept in memory.problems
+        memory.tool_call(tool=tool, arguments=arguments, decision=decision, result=text, reason=reason,
+                         audit_id=audit_id, agent=agent)
     return text
