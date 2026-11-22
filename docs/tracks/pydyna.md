@@ -77,9 +77,14 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 For M1: `knowledge/*/vector_db/` in the root `.gitignore` (not ignored now; excluded locally through `.git/info/exclude`); the `pydyna` config section moved out of `config.py` `DEFAULTS`; optional dependency group `pydyna` lists chromadb and sentence-transformers without upper limits (local: 1.5.9 and 5.6.1).
 
 ## Pending local checks
-* Folder filter (option A): `git pull`; full suite (expected 326 passed: 321 + 5 real-data); `python -c "from champion.specialists.pydyna import records as r; kb='knowledge/pydyna/knowledge-base'; print(len(r.api_documents(kb)), len(r.dpf_post_documents(kb)))"` (kept of 62328 and of 1719); rerun the search script of docs/steps/pydyna-02-tools.md.
+None.
 
 ## Findings and live checks
+* 21 Nov 2026, Linux (user), code searches after the folder filter (script "Check after the folder filter" in docs/steps/pydyna-02-tools.md, real database copy, `HF_HUB_OFFLINE=1`):
+  * `search_pydyna_api` "create a deck with a shell part": raw top 10 had 7 hits from `tests/` and `codegen/manifest.json` (`keep=False`); the tool returned 5 from `examples/Optimization/Plate_Thickness_Optimization.py`, `doc/source/getting-started/example.rst`, `src/ansys/dyna/core/agent/patterns.md` (2 chunks), `src/ansys/dyna/core/lib/keyword_base.py`. Filter works.
+  * `search_pydpf_post` "section force from binout": raw top 10 had 5 dropped (`requirements/`, `pytest.ini`, `.ci/`, `tests/`, `.github/`); the tool returned 5 from `src/` and `doc/`. Filter works, but the hits (`modal_mechanical_simulation.py`, `mesh.py`, `simulation.py`, distances 0.38-0.39) do not answer the question: PyDPF-Post may not read binout at all. To check in T1.3 (binout may need `ansys-dpf-core` or LS-DYNA's own reader); the T1.3 Verify question may need to change.
+  * Model load 10.2 s on the first search, then 0.09 s.
+* 21 Nov 2026, Linux (user), after pulling 55b6791 (folder filter, option A): full suite 326 passed (321 + 5 real-data). Kept: `pydyna_api` 36937 of 62328 (25391 dropped: tests, `codegen/`, top-level files), `pydpf_post` 1352 of 1719 (367 dropped; 306 more than the first filter, which kept 1658). The database still holds all 62328 / 1719; the searches drop the rest at search time until M1 rebuilds it from the filtered records.
 * 21 Nov 2026, Linux (user), search script of docs/steps/pydyna-02-tools.md on a `/tmp` copy of the database, `HF_HUB_OFFLINE=1`:
   * Model loads from the cache without internet; first search 10.7 s (model load), then 0.03-0.22 s.
   * 55 categories (material 800, control 225, definition 205, output 193, airbag 189, contact 156, ...).

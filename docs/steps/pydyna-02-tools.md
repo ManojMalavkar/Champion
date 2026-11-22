@@ -66,6 +66,32 @@ for title, coll, text, n, where in [
 EOF
 ```
 
+## Check after the folder filter (Linux, on the `/tmp` copy as above)
+
+Shows the raw top 10 of each code search with the filter result, then what the tool returns. Run on 21 Nov 2026: filter works for both (results in docs/tracks/pydyna.md, Findings).
+
+```bash
+HF_HUB_OFFLINE=1 python - <<'EOF'
+import json, time
+from pathlib import Path
+from champion.specialists.pydyna import records as rec, tools as pt
+from champion.specialists.pydyna.search import ChromaSearch
+
+s = ChromaSearch(Path("/tmp/pydyna_vdb"))
+for title, coll, text, search, keep in [
+    ("api", "pydyna_api", "create a deck with a shell part", pt.search_api, rec.keep_api_path),
+    ("dpf_post", "pydpf_post", "section force from binout", pt.search_dpf_post, rec.keep_code_path)]:
+    start = time.monotonic()
+    raw = s.query(coll, text, 10, None)
+    print(f"{title}, raw top 10 ({time.monotonic() - start:.2f} s):")
+    for h in raw:
+        print(f"  {h.distance:.4f}  {h.metadata.get('source_path') or '(docs record)'}  keep={keep(h.metadata.get('source_path', ''))}")
+    print(f"{title}, what the tool returns (n=5):")
+    for r in json.loads(search(None, s, text, 5)):
+        print(f"  {r['distance']:.4f}  {r['source_path'] or r['class'] + '.' + r['method']}  chunk {r['chunk_index']}")
+EOF
+```
+
 ## Fix after the Linux search check (21 Nov 2026)
 
 The first run on the real database showed `pydyna_api` hits only from `tests/` and `codegen/manifest.json`, and the PyDPF-Post filter keeping `tests/`. User decision (option A): both code searches keep only `src/`, `doc/`, `docs/`, `examples/` (`records.keep_code_path`; `keep_api_path` also keeps the 5 docs records without a source file). As the old database still holds those files, both searches ask Chroma for 5 x n (at most 100) and return the first n kept; fewer than n come back when the top 100 hold fewer. Tests: 11 more (filter cases, API documents without tests and `codegen/`, API search drops them); serverless 321 passed, 5 skipped. Removing the folder check makes 8 tests fail; an API search without the filter makes 1 fail.
