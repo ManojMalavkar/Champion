@@ -12,8 +12,8 @@ Second step of track T1 (docs/tracks/pydyna.md), built 21 Nov 2026. It ports the
 | `lookup_keyword` | Keyword, Code | same | merged record (T1.0) with `sources`; alias shown as `found_as_alias`; unknown name lists close names |
 | `validate_keyword_params` | Keyword | same | parameters as JSON text; types checked (T1.0) |
 | `search_keyword` | Keyword | same + `get_material_model`, `get_contact_type` | optional `category` filter on the stored category (`material`, `contact`, ...); unknown category lists the known ones |
-| `search_pydyna_api` | Code | same | `source_path` and `chunk_index` in every hit |
-| `search_pydpf_post` | DPF-Post | same | repository files of the old database dropped at search time (T1.0 filter) |
+| `search_pydyna_api` | Code | same | `source_path` and `chunk_index` in every hit; only docs records and `src/`, `doc/`, `docs/`, `examples/` (tests and `codegen/` of the old database dropped at search time) |
+| `search_pydpf_post` | DPF-Post | same | only `src/`, `doc/`, `docs/`, `examples/` (tests and repository files of the old database dropped at search time) |
 
 * `get_material_model` and `get_contact_type` are not ported (user, 21 Nov 2026): they only put "material model" or "contact algorithm" in front of the query, with no filter.
 * Keyword files are read once and again only when a file changes (name, size, time).
@@ -62,8 +62,12 @@ for title, coll, text, n, where in [
     for h in hits:
         m = h.metadata
         print(f"  {h.distance:.4f}  {m.get('keyword') or m.get('source_path')}  [{m.get('category', '')}]"
-              f"  keep={rec.keep_dpf_post_path(m.get('source_path', '')) if coll == 'pydpf_post' else ''}")
+              f"  keep={rec.keep_code_path(m.get('source_path', '')) if coll == 'pydpf_post' else rec.keep_api_path(m.get('source_path', '')) if coll == 'pydyna_api' else ''}")
 EOF
 ```
 
-Expected: `material` and `contact` among the categories; the material and contact hits only of that category; API hits with a source path; the model loads without internet. Report the whole output; the first search includes loading the model.
+## Fix after the Linux search check (21 Nov 2026)
+
+The first run on the real database showed `pydyna_api` hits only from `tests/` and `codegen/manifest.json`, and the PyDPF-Post filter keeping `tests/`. User decision (option A): both code searches keep only `src/`, `doc/`, `docs/`, `examples/` (`records.keep_code_path`; `keep_api_path` also keeps the 5 docs records without a source file). As the old database still holds those files, both searches ask Chroma for 5 x n (at most 100) and return the first n kept; fewer than n come back when the top 100 hold fewer. Tests: 11 more (filter cases, API documents without tests and `codegen/`, API search drops them); serverless 321 passed, 5 skipped. Removing the folder check makes 8 tests fail; an API search without the filter makes 1 fail.
+
+Expected (rerun after the fix): `keep=` shows `True` or `False` for `pydyna_api` and `pydpf_post` hits (the script prints raw hits, before the filter); `material` and `contact` among the categories; the material and contact hits only of that category; API hits with a source path; the model loads without internet. Report the whole output; the first search includes loading the model.

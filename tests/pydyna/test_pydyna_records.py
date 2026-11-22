@@ -1,6 +1,7 @@
 """Step T1.0: PyDyna knowledge records on small sample files (tests/pydyna/fixtures)."""
 
 import json
+import shutil
 
 import pytest
 
@@ -105,22 +106,40 @@ def test_single_source_file_is_used_when_there_are_no_parts(tmp_path):
 
 @pytest.mark.parametrize("path, keep", [
     (".pre-commit-config.yaml", False), ("CODE_OF_CONDUCT.md", False), ("CONTRIBUTING.md", False),
-    (".github/workflows/ci.md", False), ("pyproject.toml", False), ("", False),
-    ("README.md", True), ("src/ansys/dpf/post/simulation.py", True),
-    ("examples/01-basics/01-energy.py", True), ("doc/source/index.rst", True),
+    (".github/workflows/ci.md", False), ("pyproject.toml", False), ("", False), ("README.md", False),
+    ("tests/test_simulation.py", False), ("codegen/manifest.json", False), ("codegen/generate.py", False),
+    ("requirements/requirements_build.txt", False), ("doc/source/CHANGELOG.md", False),
+    ("src/.hidden/x.py", False), ("src/ansys/dyna/core/data.json", False),
+    ("src/ansys/dpf/post/simulation.py", True), ("examples/01-basics/01-energy.py", True),
+    ("doc/source/index.rst", True), ("docs/guide.md", True),
 ])
-def test_dpf_post_filter(path, keep):
-    assert rec.keep_dpf_post_path(path) is keep
+def test_code_path_filter(path, keep):
+    assert rec.keep_code_path(path) is keep
+
+
+def test_api_filter_keeps_docs_records_without_a_source_file():
+    assert rec.keep_api_path("") is True
+    assert rec.keep_api_path("tests/test_deck.py") is False
+    assert rec.keep_api_path("src/ansys/dyna/core/deck.py") is True
+
+
+def test_api_documents_leave_out_tests_and_codegen(tmp_path):
+    shutil.copy(FIXTURES / rec.API_DOCS_FILE, tmp_path)
+    rows = [{"class": "PyDyna source", "method": f"{p}#chunk-1", "description": "x", "source_path": p,
+             "chunk_index": 0} for p in ("tests/test_deck.py", "codegen/manifest.json", "src/ansys/dyna/core/deck.py")]
+    (tmp_path / "pydyna_source.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    assert [d.id for d in rec.api_documents(tmp_path)] == [
+        "api:doc:DynaBase.__init__", "api:doc:DynaSolution.__init__", "api:src/ansys/dyna/core/deck.py#0"]
 
 
 def test_dpf_post_documents_leave_out_repository_files():
     docs = rec.dpf_post_documents(FIXTURES)
     assert [d.metadata["source_path"] for d in docs] == [
-        "README.md", "src/ansys/dpf/post/simulation.py", "examples/01-basics/01-energy.py", "doc/source/index.rst"]
-    assert docs[1].id == "dpfpost:src/ansys/dpf/post/simulation.py#0"
-    assert docs[1].text == ("PyDPF-Post source.src/ansys/dpf/post/simulation.py#chunk-1\n"
+        "src/ansys/dpf/post/simulation.py", "examples/01-basics/01-energy.py", "doc/source/index.rst"]
+    assert docs[0].id == "dpfpost:src/ansys/dpf/post/simulation.py#0"
+    assert docs[0].text == ("PyDPF-Post source.src/ansys/dpf/post/simulation.py#chunk-1\n"
                             "Source: src/ansys/dpf/post/simulation.py\nclass Simulation:")
-    assert docs[1].metadata["source_project"] == "PyDPF-Post"
+    assert docs[0].metadata["source_project"] == "PyDPF-Post"
 
 
 def test_duplicate_ids_are_an_error():

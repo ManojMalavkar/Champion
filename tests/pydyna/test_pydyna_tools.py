@@ -162,9 +162,22 @@ def test_search_pydyna_api_shows_source_and_chunk(project):
             **{"class": "PyDyna source", "method": "deck.py#chunk-1", "source_path": "src/deck.py",
                "chunk_index": 0})]})
     rows = json.loads(pt.search_api(config, backend, "deck", n_results=3))
-    assert backend.calls == [("pydyna_api", "deck", 3, None)]
+    assert backend.calls == [("pydyna_api", "deck", 15, None)]  # asks for 5 x n, keeps n
     assert rows[0]["source_path"] == "src/deck.py" and rows[0]["chunk_index"] == 0
     assert len(rows[0]["text"]) == pt.CODE_TEXT_CHARS
+
+
+def test_search_pydyna_api_drops_tests_and_codegen_of_the_old_database(project):
+    config, _ = project
+    backend = FakeBackend({"pydyna_api": [
+        hit("a0", "test deck", 0.1, source_path="tests/test_deck.py", chunk_index=0),
+        hit("a1", "manifest", 0.2, source_path="codegen/manifest.json", chunk_index=0),
+        hit("a2", "docs", 0.3, **{"class": "DynaBase", "method": "__init__", "source_path": "", "chunk_index": -1}),
+        hit("a3", "deck", 0.4, source_path="src/ansys/dyna/core/deck.py", chunk_index=1),
+        hit("a4", "example", 0.5, source_path="examples/shell.py", chunk_index=0),
+    ]})
+    rows = json.loads(pt.search_api(config, backend, "deck", n_results=2))
+    assert [(r["method"], r["source_path"]) for r in rows] == [("__init__", ""), ("", "src/ansys/dyna/core/deck.py")]
 
 
 def test_search_pydpf_post_drops_repository_files_of_the_old_database(project):
@@ -172,12 +185,13 @@ def test_search_pydpf_post_drops_repository_files_of_the_old_database(project):
     backend = FakeBackend({"pydpf_post": [
         hit("d0", "pre-commit", 0.1, source_path=".pre-commit-config.yaml", chunk_index=0),
         hit("d1", "conduct", 0.2, source_path="CODE_OF_CONDUCT.md", chunk_index=0),
+        hit("d1b", "test", 0.25, source_path="tests/test_simulation.py", chunk_index=0),
         hit("d2", "energy", 0.3, source_path="examples/01-energy.py", chunk_index=0),
         hit("d3", "simulation", 0.4, source_path="src/ansys/dpf/post/simulation.py", chunk_index=2),
         hit("d4", "more", 0.5, source_path="doc/source/index.rst", chunk_index=0),
     ]})
     rows = json.loads(pt.search_dpf_post(config, backend, "energy", n_results=2))
-    assert backend.calls == [("pydpf_post", "energy", 4, None)]  # asks for more, keeps n
+    assert backend.calls == [("pydpf_post", "energy", 10, None)]  # asks for 5 x n, keeps n
     assert [r["source_path"] for r in rows] == ["examples/01-energy.py", "src/ansys/dpf/post/simulation.py"]
 
 

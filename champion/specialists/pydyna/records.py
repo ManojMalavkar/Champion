@@ -21,8 +21,10 @@ Fixes against the old agent (docs/tracks/pydyna.md, "Problems found"):
    all generated fields stay, the curated values win where both have a value.
 2. Ids are stable (built from the keyword name or the source path and chunk),
    not ``kw_0``, ``api_0``: they do not change when the input order changes.
-3. PyDPF-Post repository files (``.pre-commit-config.yaml``, ``CODE_OF_CONDUCT.md``,
-   ...) are left out.
+3. Code collections keep only ``.py``, ``.rst``, ``.md`` files under ``src/``, ``doc/``,
+   ``docs/``, ``examples/`` (user, 21 Nov 2026: option A); tests, ``codegen/`` and
+   repository files (``.pre-commit-config.yaml``, ``CODE_OF_CONDUCT.md``, ...) are
+   left out. PyDyna docs records without a source file are kept.
 4. ``check_params`` also checks field types.
 
 Pure Python: no Chroma, no model, nothing is written.
@@ -50,10 +52,12 @@ DPF_POST_FILE = "pydpf_post_source.jsonl"
 GENERATED_SOURCE = "PyDyna codegen schema"
 CURATED_SOURCE = "curated reference"
 
-# PyDPF-Post: only these file types are indexed ...
-DPF_POST_SUFFIXES = frozenset({".py", ".rst", ".md"})
+# Code collections (pydyna_api, pydpf_post): only these top folders ...
+CODE_FOLDERS = frozenset({"src", "doc", "docs", "examples"})
+# ... and file types are kept ...
+CODE_SUFFIXES = frozenset({".py", ".rst", ".md"})
 # ... and never these repository files (compared in upper case, without suffix).
-DPF_POST_META_NAMES = frozenset({
+CODE_META_NAMES = frozenset({
     "CODE_OF_CONDUCT", "CONTRIBUTING", "CONTRIBUTORS", "AUTHORS", "SECURITY",
     "LICENSE", "CHANGELOG", "CHANGES", "PULL_REQUEST_TEMPLATE", "ISSUE_TEMPLATE",
 })
@@ -232,17 +236,24 @@ def api_document(record: dict) -> Document:
 
 
 def api_documents(kb_dir: Path) -> list[Document]:
-    return unique_ids(api_document(record) for path in api_files(kb_dir) for record in read_jsonl(path))
+    return unique_ids(api_document(record) for path in api_files(kb_dir) for record in read_jsonl(path)
+                      if keep_api_path(record.get("source_path", "")))
 
 
-def keep_dpf_post_path(source_path: str) -> bool:
-    """True for PyDPF-Post source, docs and examples; False for repository meta files."""
+def keep_code_path(source_path: str) -> bool:
+    """True for source, docs and examples (``src/``, ``doc/``, ``docs/``, ``examples/``); False for
+    tests, ``codegen/``, files at the top of the repository and repository meta files."""
     path = PurePosixPath(source_path or "")
-    if not path.name or path.suffix.lower() not in DPF_POST_SUFFIXES:
+    if len(path.parts) < 2 or path.parts[0] not in CODE_FOLDERS:
         return False
-    if any(part.startswith(".") for part in path.parts):
+    if path.suffix.lower() not in CODE_SUFFIXES or any(part.startswith(".") for part in path.parts):
         return False
-    return path.stem.upper() not in DPF_POST_META_NAMES
+    return path.stem.upper() not in CODE_META_NAMES
+
+
+def keep_api_path(source_path: str) -> bool:
+    """``pydyna_api``: the curated docs records have no source file and are kept."""
+    return not source_path or keep_code_path(source_path)
 
 
 def dpf_post_document(record: dict) -> Document:
@@ -270,7 +281,7 @@ def dpf_post_documents(kb_dir: Path) -> list[Document]:
     if not path.is_file():
         return []
     return unique_ids(dpf_post_document(record) for record in read_jsonl(path)
-                      if keep_dpf_post_path(record.get("source_path", "")))
+                      if keep_code_path(record.get("source_path", "")))
 
 
 def unique_ids(documents: Iterable[Document]) -> list[Document]:

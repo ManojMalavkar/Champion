@@ -46,6 +46,8 @@ from champion.tools.guard import ToolError, run_guarded
 MAX_RESULTS = 20
 KEYWORD_TEXT_CHARS = 300  # as the old search_keyword
 CODE_TEXT_CHARS = 1800  # as the old search_pydyna_api / search_pydpf_post
+CODE_FETCH_FACTOR = 5  # the old database still holds tests and repository files: ask for more, keep n
+CODE_FETCH_MAX = 100
 
 for _rule in (
     ToolRule("lookup_keyword", "none", "Full record of one LS-DYNA keyword from the PyDyna knowledge base"),
@@ -172,17 +174,21 @@ def _code_hits(hits: list) -> list[dict]:
             for h in hits]
 
 
+def _code_search(backend: SearchBackend, collection: str, query: str, n_results: int, keep) -> str:
+    """The existing database still holds tests, ``codegen/`` and repository files; they are dropped
+    here (records.py filter), so more hits are asked for and the first n kept are returned."""
+    n = _check_n(n_results)
+    hits = _query(backend, collection, query, min(CODE_FETCH_FACTOR * n, CODE_FETCH_MAX))
+    kept = [h for h in hits if keep(h.metadata.get("source_path", ""))]
+    return _json(_code_hits(kept[:n]))
+
+
 def search_api(config: Config, backend: SearchBackend, query: str, n_results: int = 8) -> str:
-    hits = _query(backend, rec.API_COLLECTION, query, _check_n(n_results))
-    return _json(_code_hits(hits))
+    return _code_search(backend, rec.API_COLLECTION, query, n_results, rec.keep_api_path)
 
 
 def search_dpf_post(config: Config, backend: SearchBackend, query: str, n_results: int = 8) -> str:
-    """The existing database still holds repository files; they are dropped here too (T1.0 filter)."""
-    n = _check_n(n_results)
-    hits = _query(backend, rec.DPF_POST_COLLECTION, query, min(2 * n, 2 * MAX_RESULTS))
-    kept = [h for h in hits if rec.keep_dpf_post_path(h.metadata.get("source_path", ""))]
-    return _json(_code_hits(kept[:n]))
+    return _code_search(backend, rec.DPF_POST_COLLECTION, query, n_results, rec.keep_code_path)
 
 
 def _backend(context: ChampionContext) -> SearchBackend:

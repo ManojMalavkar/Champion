@@ -14,7 +14,7 @@ Ported from the local PyDyna_Agent (`sacreate.py`, the builder that made the wor
   * `load_keywords`: generated schema first, curated reference merged over it (`merge_keyword`). All generated fields stay; for a field in both, curated values win key by key; the curated description wins, the generated text stays as `schema_description`; aliases are joined; `sources` says where a record came from.
   * `keyword_index`: names and aliases; an alias never hides a real keyword.
   * `keyword_documents`, `api_documents`, `dpf_post_documents`, `collection_documents`: stable ids `kw:<keyword>`, `api:<source_path>#<chunk>` or `api:doc:<class>.<method>`, `dpfpost:<source_path>#<chunk>`; a duplicate id is an error.
-  * `keep_dpf_post_path`: PyDPF-Post keeps `.py`, `.rst`, `.md`; drops dot files and folders (`.pre-commit-config.yaml`, `.github/`) and repository files (`CODE_OF_CONDUCT`, `CONTRIBUTING`, `LICENSE`, ...). `README.md` stays.
+  * `keep_code_path` (both code collections) and `keep_api_path` (`pydyna_api`): keep `.py`, `.rst`, `.md` under `src/`, `doc/`, `docs/`, `examples/` only (user, 21 Nov 2026, option A); drop `tests/`, `codegen/`, files at the top of the repository (`README.md`, `pyproject.toml`), dot files and folders (`.pre-commit-config.yaml`, `.github/`) and repository files (`CODE_OF_CONDUCT`, `CONTRIBUTING`, `LICENSE`, ...). The 5 PyDyna docs records have no source file and are kept. (First version checked only suffix, dot folders and meta names: it kept `tests/` and `README.md`; changed after the Linux search check.)
   * `check_params`: required fields, types (`int`, `float`, `string`; a bool is never a number) as errors; unknown fields and `min`/`max` as warnings.
 
 ## Fixes against the old agent

@@ -66,18 +66,22 @@ def test_pydyna_mat_024_keeps_the_full_card():
     assert long_name["keyword"] == "*MAT_PIECEWISE_LINEAR_PLASTICITY"
 
 
-def test_pydyna_api_has_62328_unique_ids():
+def test_pydyna_api_keeps_docs_source_and_examples_with_unique_ids():
     _need(rec.API_DOCS_FILE, *SOURCE_PARTS)
     docs = rec.api_documents(KB)  # raises on a duplicate id
-    assert len(docs) == 62328
+    assert 0 < len(docs) < 62328  # 62328 before the folder filter
     assert sum(d.id.startswith("api:doc:") for d in docs) == 5
+    paths = {d.metadata["source_path"] for d in docs} - {""}
+    assert all(rec.keep_code_path(p) for p in paths)
+    assert any(p.startswith("src/") for p in paths)
 
 
 def test_pydyna_dpf_post_drops_repository_files_only():
     _need(rec.DPF_POST_FILE)
     docs = rec.dpf_post_documents(KB)
-    assert 0 < len(docs) < 1719
+    assert 0 < len(docs) < 1658  # 1719 in the file; 1658 with the first filter, which kept tests/
     paths = {d.metadata["source_path"] for d in docs}
     assert ".pre-commit-config.yaml" not in paths and "CODE_OF_CONDUCT.md" not in paths
-    assert all(rec.keep_dpf_post_path(p) for p in paths)
+    assert not any(p.startswith("tests/") for p in paths)
+    assert all(rec.keep_code_path(p) for p in paths)
     assert any(p.endswith(".py") for p in paths)

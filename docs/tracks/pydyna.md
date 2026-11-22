@@ -26,7 +26,7 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 ## Problems found in the source (fixed in the port)
 1. Curated keyword records replace the whole generated record: `lookup_keyword("*MAT_024")` returns only 5 fields (RO, E, PR, SIGY, ETAN) instead of the full card. Port: merge curated over generated (generated cards and fields kept; curated description, aliases, units, required flags and limits added).
 2. Ids are sequential (`kw_0`, `api_0`, `dpfpost_0`) and change when input order changes. Port: stable ids from keyword name or `source_path` + `chunk_index`.
-3. `pydpf_post` indexed repository files such as `.pre-commit-config.yaml` and `CODE_OF_CONDUCT.md`. Port: index only `.py`, `.rst`, `.md` under source, docs and examples; drop repository meta files.
+3. `pydpf_post` indexed repository files such as `.pre-commit-config.yaml` and `CODE_OF_CONDUCT.md`. Port (both code collections, user 21 Nov 2026 option A): index only `.py`, `.rst`, `.md` under `src/`, `doc/`, `docs/`, `examples/` (tests, `codegen/` and top-level files dropped; PyDyna docs records kept); drop repository meta files.
 4. `validate_keyword_params` does not check field types. Port: check types too.
 5. Search returns only a rounded score. Port: return raw distance and score, with source file and chunk.
 6. The old prompt asks for a Python example for every how-to, even simple lookups. Port: only the Code and PyDPF-Post sub-agents write code; Keyword Lookup answers with fields and sources.
@@ -77,10 +77,19 @@ The working agent is the local copy on the Linux machine: `/nobackup/people/t001
 For M1: `knowledge/*/vector_db/` in the root `.gitignore` (not ignored now; excluded locally through `.git/info/exclude`); the `pydyna` config section moved out of `config.py` `DEFAULTS`; optional dependency group `pydyna` lists chromadb and sentence-transformers without upper limits (local: 1.5.9 and 5.6.1).
 
 ## Pending local checks
-* Tools: `docs/steps/pydyna-02-tools.md`, Verify: `tests/pydyna` 44 passed, full suite 315 passed; categories; one search per collection on a copy of the database, with `HF_HUB_OFFLINE=1` (also checks loading the model without internet).
-* T1.0: on the Linux worktree the T1.0 tests (`test_pydyna_records.py`, `test_pydyna_data.py`: 30 passed, 0 skipped); report the PyDPF-Post count kept of 1719 (docs/steps/pydyna-01-records.md, Verify).
+* Folder filter (option A): `git pull`; full suite (expected 326 passed: 321 + 5 real-data); `python -c "from champion.specialists.pydyna import records as r; kb='knowledge/pydyna/knowledge-base'; print(len(r.api_documents(kb)), len(r.dpf_post_documents(kb)))"` (kept of 62328 and of 1719); rerun the search script of docs/steps/pydyna-02-tools.md.
 
 ## Findings and live checks
+* 21 Nov 2026, Linux (user), search script of docs/steps/pydyna-02-tools.md on a `/tmp` copy of the database, `HF_HUB_OFFLINE=1`:
+  * Model loads from the cache without internet; first search 10.7 s (model load), then 0.03-0.22 s.
+  * 55 categories (material 800, control 225, definition 205, output 193, airbag 189, contact 156, ...).
+  * Category filter works: all material hits `[material]`, all contact hits `[contact]`. "piecewise linear plasticity for steel" -> `*MAT_024` first (0.195), `*MAT_PIECEWISE_LINEAR_PLASTICITY` second.
+  * Weak: "self contact of a crushing rail" -> `*CONTACT_SPG`, `*CONTACT_RIGID_SURFACE`, `*CONTACT_1D` first (distances 0.32-0.34); `*CONTACT_AUTOMATIC_SINGLE_SURFACE` not in the top 5. Search quality, not a bug; for T1.1 (curated descriptions, or `lookup_keyword` first when the name is known).
+  * Problem: `pydyna_api` top 5 for "create a deck with a shell part" are `tests/test_deck.py` (2), `codegen/manifest.json` (2), `tests/test_keyword_collection.py`; nothing from `src/` or `doc/`. The API collection has no file filter.
+  * Problem: `pydpf_post` filter drops 4 of 10 (`requirements/requirements_build.txt`, `pytest.ini`, `.ci/run_examples.py`, `.github/workflows/docs.yml`) but keeps `tests/test_simulation.py`. Problem 3 above says "source, docs and examples"; the code checks only suffix, hidden folders and meta names, not the folder. The tool asks for 2 x n and keeps the first n after the filter.
+  * Decided (user, 21 Nov 2026, option A): both code collections keep only `src/`, `doc/`, `docs/`, `examples/`; tests and `codegen/` dropped. Built: `records.keep_code_path` / `keep_api_path`, searches ask for 5 x n and keep n (docs/steps/pydyna-02-tools.md, "Fix after the Linux search check"); serverless 321 passed, 5 skipped.
+* 21 Nov 2026, Linux (user), after pulling 54af51e (test fix): full suite 315 passed, 0 failed; that includes the 5 real-data tests (310 + 5 skipped here). T1.0 real-data check done; the search script of docs/steps/pydyna-02-tools.md still to run.
+* 21 Nov 2026, Linux (user): PyDPF-Post filter keeps 1658 of 1719 chunks (61 dropped: repository and meta files). T1.0 Verify complete.
 * 21 Nov 2026, Linux (user): after pulling 95e09a4, `tests/pydyna` 43 passed, 1 failed; full suite 314 passed, 1 failed. The failure was the test, not the code: `test_pydyna_mat_024_keeps_the_full_card` expected the alias `*MAT_PIECEWISE_LINEAR_PLASTICITY` to find `*MAT_024`, but PyDyna has both names as their own keywords (`mat_024.py` and `mat_piecewise_linear_plasticity.py` in ansys-dyna-core 0.12.1, checked), so the long name finds its own record (an alias never hides a real keyword, as designed). Test corrected; reproduced on a copy of the fixtures with both keywords: old assertion fails, new one passes. All other real-data checks passed (counts, 3686 keywords, `*MAT_024` full card with curated unit, 62328 unique API ids, PyDPF-Post filter).
 * Open: the long-name record `*MAT_PIECEWISE_LINEAR_PLASTICITY` gets no curated units or limits (only `*MAT_024` is curated). Proposed: merge a curated record also over the generated records of its aliases that are real keywords.
 * 21 Nov 2026, local report by Codex (read only): counts, embedding length, builder and tool behaviour as listed above; `lookup_keyword("*MAT_024")` took 0.26 s including index load; the two semantic searches were not run (read-only rule).
