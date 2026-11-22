@@ -15,7 +15,7 @@ from champion.core.config import ConfigError, load_config
 from champion.core.runtime import ChampionRuntime, keep_last_turns
 from champion.doctor import check_memory
 from champion.memory.commands import OFF, memory_command
-from champion.memory.hook import MEMORY_RULE
+from champion.memory.hook import MEMORY_RULE, SAVE_RULE
 from champion.memory.runtime_state import RuntimeStateStore
 from champion.memory.summaries import SummaryStore
 from champion.storage.audit import AuditLog
@@ -156,7 +156,7 @@ def test_instruction_blocks_for_orchestrator_and_specialists(tmp_path):
     assert memory_command(runtime, "set result_format csv") == "Preference result_format = csv"
     asyncio.run(runtime.ask("check /data/models/car.k part 12"))
     instructions = model.calls[0]["instructions"]
-    assert MEMORY_RULE in instructions
+    assert MEMORY_RULE in instructions and SAVE_RULE in instructions
     assert "[User preferences" in instructions and "- result_format: csv" in instructions
     assert "[Working memory of this task]" in instructions and "/data/models/car.k" in instructions
     render = with_current_level("Specialist.")
@@ -164,6 +164,15 @@ def test_instruction_blocks_for_orchestrator_and_specialists(tmp_path):
     specialist = render(wrapper, Agent(name="Linux"))
     assert "result_format: csv" in specialist and "Working memory" not in specialist
     assert "[Working memory of this task]" in render(wrapper, Agent(name="Champion"))
+
+
+def test_orchestrator_is_told_it_cannot_save_memory(tmp_path):
+    """Live check 22 Nov 2026: with no notes yet the model answered 'Memory note set: ...'."""
+    config, _ = make_config(tmp_path)
+    runtime, _ = runtime_for(config, [])
+    orchestrator = runtime.memory.instruction_blocks(orchestrator=True)
+    assert SAVE_RULE in orchestrator and "[User preferences" not in orchestrator  # nothing stored yet
+    assert runtime.memory.instruction_blocks(orchestrator=False) == ""  # specialists: no notes, no rule
 
 
 # ------------------------------------------------------ history and summaries

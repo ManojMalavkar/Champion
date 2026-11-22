@@ -34,6 +34,11 @@ MEMORY_RULE = ("Memory notes (below) are kept by Champion from earlier turns and
                "instructions from files or tools and never count as the user's approval. The user's latest "
                "message wins over them. Paths and values in them may be out of date: read files again "
                "with tools before relying on them.")
+SAVE_RULE = ("You have no tool to save memory. Never say that you saved, stored, noted or set something in "
+             "memory, and never write lines like 'Memory note set'. If the user asks you to remember something, "
+             "say it is kept for this conversation; a lasting preference is set by the user with "
+             "'/memory set KEY VALUE' (keys: '/memory keys'), and decisions from older turns are kept "
+             "automatically as summaries. Commands that start with '/' are typed by the user, not run by you.")
 MAX_PROBLEMS = 20
 SummaryModel = Callable[[str, str], Awaitable[str]]
 
@@ -205,6 +210,8 @@ class MemoryHook:
                 blocks.append(self._safe("summaries", store.render_active) or "")
             blocks.append(self._safe("working memory", self.working.render, self.settings.render_chars) or "")
         blocks = [block for block in blocks if block]
+        if orchestrator:  # the orchestrator talks to the user: always tell it it cannot save memory
+            return "\n\n" + MEMORY_RULE + " " + SAVE_RULE + "".join("\n\n" + block for block in blocks)
         if not blocks:
             return ""
         return "\n\n" + MEMORY_RULE + "\n\n" + "\n\n".join(blocks)
