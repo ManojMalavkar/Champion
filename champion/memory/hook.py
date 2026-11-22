@@ -196,6 +196,8 @@ class MemoryHook:
             self._safe("runtime state", state.record_error, "ended without finishing (Champion was stopped)")
             if self._safe("runtime state", self.runtime_store.finish, state, "failed") is not None:
                 closed.append(state.request_id)
+        if self.runtime_store is not None:
+            self._safe("runtime state", self.runtime_store.remove_stale_temp_files)
         return closed
 
     # ---------------------------------------------------------- instructions

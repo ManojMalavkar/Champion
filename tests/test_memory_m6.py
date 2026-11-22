@@ -4,6 +4,7 @@ import asyncio
 import functools
 import json
 import os
+import time
 
 import pytest
 from agents import Agent, RunContextWrapper
@@ -276,6 +277,38 @@ def test_doctor_memory_line(tmp_path):
     config, _ = make_config(tmp_path)
     result = check_memory(config)
     assert result.status == "OK" and result.detail.startswith("on: runtime state, summaries, preferences")
+
+
+def test_empty_request_file_of_a_killed_chat_is_listed_and_closed(tmp_path):
+    """Live check 22 Nov 2026: a chat killed between claiming the ID and its first write left a
+    0-byte REQ file (and a .tmp file); /memory unfinished listed nothing."""
+    config, work = make_config(tmp_path)
+    folder = work / ".champion" / "runtime"
+    folder.mkdir(parents=True)
+    empty, temp = folder / "REQ-20261122-0008.json", folder / ".tmp-s6tsevrw.json"
+    empty.write_text("")
+    temp.write_text('{"request_id": "REQ-20261122-0008"}')
+    young = folder / "REQ-20261122-0009.json"
+    young.write_text("")  # another chat that is just starting: not listed, not touched
+    old = time.time() - 7200
+    os.utime(empty, (old, old))
+    os.utime(temp, (old, old))
+    runtime, _ = runtime_for(config, [])
+    assert [s.request_id for s in runtime.memory.unfinished()] == ["REQ-20261122-0008"]
+    out = []
+    lines = ["/memory unfinished close"]
+
+    def read_line(prompt):
+        if not lines:
+            raise EOFError
+        return lines.pop(0)
+    asyncio.run(chat_loop(runtime, read_line, out.append))
+    text_out = "\n".join(out)
+    assert "1 earlier request(s) in this folder never ended (REQ-20261122-0008)" in text_out
+    assert "Marked failed: REQ-20261122-0008" in text_out
+    [state] = archived(work)
+    assert state["current_step"] == "failed" and "empty or unreadable" in state["errors"][0]["message"]
+    assert not empty.exists() and not temp.exists() and young.exists()
 
 
 def test_nested_calls_carry_the_sub_agent_name(tmp_path):

@@ -128,7 +128,19 @@ Found:
   no memory tool; nothing was saved). Fix: `SAVE_RULE` is always given to the
   orchestrator when memory is on (`test_orchestrator_is_told_it_cannot_save_memory`); 340 passed.
 * After a killed chat, `REQ-20261122-0008.json` stayed in `runtime/` but
-  `/memory unfinished` listed nothing. Open: being checked with the file.
+  `/memory unfinished` listed nothing. The file had 0 bytes, next to a
+  `.tmp-*.json` of the same millisecond: the chat was stopped between
+  claiming the ID (empty file) and the rename of its first write, and
+  `unfinished()` skipped empty files for ever. Fix in the library
+  (`runtime_state.py`, to be merged back into `track/memory`): an empty or
+  unreadable request file older than 30 s is listed as unfinished (a younger
+  one is a start in another chat that is still writing), and
+  `/memory unfinished close` archives it as failed and removes `.tmp-*.json`
+  files older than one hour
+  (`test_empty_request_file_of_a_killed_chat_is_listed_and_closed`, fails
+  without the fix); 341 passed.
+* After the fix the model says "I've noted ... for our conversation": no
+  false claim of a saved memory note. Secret value refused by `/memory set`.
 
 ## How to verify (Linux)
 

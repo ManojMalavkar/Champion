@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -41,6 +42,8 @@ FINAL_STEPS = ("done", "failed", "cancelled")
 REQUEST_ID = re.compile(r"^REQ-\d{8}-\d{4,}$")
 MAX_TOOL_CALLS = 200  # older entries are dropped from the file (the audit log keeps them all)
 MAX_ERRORS = 50
+CLAIM_GRACE_SECONDS = 30  # an empty request file younger than this is a start that is still writing
+STALE_TEMP_SECONDS = 3600  # left-over ".tmp-*.json" files (a write stopped before its rename)
 
 
 def runtime_folder(working_directory: str | os.PathLike) -> Path:
@@ -249,9 +252,44 @@ class RuntimeStateStore:
         for file in sorted(self.folder.glob("REQ-*.json")) if self.folder.is_dir() else ():
             try:
                 states.append(RuntimeState.from_dict(read_json(file), store=self))
-            except (MemoryRefused, TypeError):
-                continue  # an empty file claimed by a start that crashed before its first write
+            except (MemoryRefused, TypeError, ValueError, OSError):
+                # Empty or unreadable: Champion stopped between claiming the ID and its first write
+                # (live check 22 Nov 2026: killed chat, 0-byte REQ file). Listed so it can be closed;
+                # a very young one is a start in another chat that is still writing.
+                state = self._broken(file)
+                if state is not None:
+                    states.append(state)
         return states
+
+    def _broken(self, file: Path) -> RuntimeState | None:
+        if not REQUEST_ID.match(file.stem):
+            return None
+        try:
+            mtime = file.stat().st_mtime
+        except OSError:
+            return None
+        if time.time() - mtime < CLAIM_GRACE_SECONDS:
+            return None
+        started = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(mtime))
+        state = RuntimeState(request_id=file.stem, agent="unknown", started_at=started, updated_at=started,
+                             errors=[{"ts": now_iso(), "step": "received", "retry": False,
+                                      "message": "the request file was empty or unreadable (Champion stopped "
+                                                 "before its first write)"}])
+        state._store = self
+        return state
+
+    def remove_stale_temp_files(self, older_than: float = STALE_TEMP_SECONDS) -> int:
+        """Delete ``.tmp-*.json`` left by a write that stopped before its rename. Returns how many."""
+        removed = 0
+        for place in (self.folder, self.archive_folder):
+            for file in place.glob(".tmp-*.json") if place.is_dir() else ():
+                try:
+                    if time.time() - file.stat().st_mtime >= older_than and not file.is_symlink():
+                        file.unlink()
+                        removed += 1
+                except OSError:
+                    continue
+        return removed
 
     def finish(self, state: RuntimeState, status: str = "done", *, archive: bool = True) -> Path | None:
         """End the request: archive it without result excerpts (default) or delete it."""
