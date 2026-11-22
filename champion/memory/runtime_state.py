@@ -43,7 +43,7 @@ REQUEST_ID = re.compile(r"^REQ-\d{8}-\d{4,}$")
 MAX_TOOL_CALLS = 200  # older entries are dropped from the file (the audit log keeps them all)
 MAX_ERRORS = 50
 CLAIM_GRACE_SECONDS = 30  # an empty request file younger than this is a start that is still writing
-STALE_TEMP_SECONDS = 3600  # left-over ".tmp-*.json" files (a write stopped before its rename)
+STALE_TEMP_SECONDS = 300  # left-over ".tmp-*.json" (a write stopped before its rename; a live write needs < 1 s)
 
 
 def runtime_folder(working_directory: str | os.PathLike) -> Path:

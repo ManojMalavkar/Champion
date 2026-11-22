@@ -136,9 +136,16 @@ Found:
   unreadable request file older than 30 s is listed as unfinished (a younger
   one is a start in another chat that is still writing), and
   `/memory unfinished close` archives it as failed and removes `.tmp-*.json`
-  files older than one hour
+  files older than 5 minutes (first one hour: the live `.tmp` file of about
+  30 minutes stayed)
   (`test_empty_request_file_of_a_killed_chat_is_listed_and_closed`, fails
-  without the fix); 341 passed.
+  without the fix); 341 passed. Live: REQ-0008 listed at start and archived
+  as failed.
+* Open: that chat was not killed by the user. It ended right after the
+  question with no "Bye." (every normal exit prints it) and no message, after
+  writing the temp file and before its rename (`fsync` on `/d`). So it was
+  stopped from outside (signal) or crashed hard. Not reproduced yet; checks:
+  exit code, `logs/`, `dmesg`.
 * After the fix the model says "I've noted ... for our conversation": no
   false claim of a saved memory note. Secret value refused by `/memory set`.
 
