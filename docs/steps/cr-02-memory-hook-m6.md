@@ -150,6 +150,19 @@ Found:
 * After the fix the model says "I've noted ... for our conversation": no
   false claim of a saved memory note. Secret value refused by `/memory set`.
 
+Last run (342 passed): the left-over `.tmp` file removed at chat start; an
+expired key (HTTP 401) gave one error line per question, the chat went on,
+exit code 0; after 10 turns `SUM-20261122-001.json` (mode 600) held the
+decision "Scripts are kept in the tools folder" (with reason) and an open
+item (folder missing); "where do we keep scripts?" was answered from the
+summary after turn 1 had left the history. Exit code 0 in every run; the
+silent stop above did not happen again (`/d` is local ext3; nothing in
+`dmesg` or the journal). Answers that looked shifted by one turn came from a
+line typed while the previous answer was running (it waited in the
+terminal), not from memory.
+
+Live check: done 22 Nov 2026. Open: the one silent stop (not reproduced).
+
 ## How to verify (Linux)
 
 ```bash
