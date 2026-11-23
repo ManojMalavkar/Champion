@@ -29,6 +29,9 @@ llm:
   api_key_env: DATABRICKS_TOKEN     # name of the environment variable containing the API token
   base_url: https://adb-5678659344564033.13.azuredatabricks.net/ai-gateway/mlflow/v1                   # null = api.openai.com (set later for a gateway)
   tracing: false                    # true would send SDK traces to OpenAI
+  verify_tls: true                  # false = do not verify the server certificate (like curl -k);
+                                    # only allowed with an internal base_url. Better: export SSL_CERT_FILE
+                                    # with the company CA bundle and keep this true.
 
 orchestration:
   max_steps: 8                      # orchestrator turns per request

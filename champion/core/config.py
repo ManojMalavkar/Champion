@@ -61,6 +61,7 @@ DEFAULTS: dict[str, Any] = {
         "api_key_env": "OPENAI_API_KEY",
         "base_url": None,  # None = api.openai.com; set later for a gateway
         "tracing": False,  # SDK traces would be sent to OpenAI
+        "verify_tls": True,  # false = like curl -k; only allowed with an internal llm.base_url
     },
     "orchestration": {
         "max_steps": 8,  # orchestrator max_turns
@@ -440,6 +441,15 @@ def validate(data: dict) -> list[str]:
             errors.append("llm.tracing must be false when llm.provider is databricks "
                           "(SDK traces would be sent to OpenAI)")
     boolean("llm.tracing")
+    boolean("llm.verify_tls")
+    if llm["verify_tls"] is False:
+        # Certificate checking off is only for an internal server given in llm.base_url, never for
+        # api.openai.com or a Databricks workspace (both have public certificates).
+        if not isinstance(base_url, str):
+            errors.append("llm.verify_tls: false needs llm.base_url (an internal server); "
+                          "certificate checking stays on for api.openai.com")
+        elif llm["provider"] == "databricks" or "openai.com" in base_url.lower():
+            errors.append("llm.verify_tls must be true for api.openai.com and the Databricks AI Gateway")
 
     positive_int("orchestration.max_steps", 50)
     positive_int("orchestration.specialist_max_turns", 100)
