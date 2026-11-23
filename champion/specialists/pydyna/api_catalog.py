@@ -45,6 +45,11 @@ CLOSE_NAMES = 5
 
 _CLASS_RE = re.compile(r"^class (\w+)\(([^)]*)\):", re.M)
 _ATTR_RE = re.compile(r'^    (keyword|subkeyword) = "([^"]*)"', re.M)
+KEYWORD_NAMESPACES = frozenset({  # modules that hold the keyword classes as attributes
+    f"{PACKAGE}.keywords", f"{PACKAGE}.keywords.keywords", f"{PACKAGE}.keywords.keyword_classes",
+    f"{PACKAGE}.keywords.keyword_classes.auto_keywords", f"{PACKAGE}.keywords.keyword_classes.manual_keywords"})
+TRIVIAL_BASES = frozenset({"object", "ABC", "abc.ABC", "Generic", "typing.Generic", "Protocol", "typing.Protocol"})
+_DETAIL_INTERNAL = ("properties", "methods", "attributes")
 _CARD_KINDS = {"from_field_schemas_with_defaults": "card", "TableCard": "table", "SeriesCard": "series",
                "CardSet": "card_set", "TableCardGroup": "table_group", "IncludeCard": "include"}
 
@@ -153,12 +158,47 @@ def _function(node: ast.FunctionDef | ast.AsyncFunctionDef, in_class: bool) -> d
             "doc": _clean_doc(ast.get_docstring(node), DOC_CHARS)}
 
 
+def _assigned_names(item: ast.AST) -> list[str]:
+    targets = item.targets if isinstance(item, ast.Assign) else [item.target]
+    return [t.id for t in targets if isinstance(t, ast.Name)]
+
+
+def _self_attributes(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[tuple[str, int]]:
+    """Public ``self.<name> = ...`` assignments in a method (instance attributes)."""
+    found = []
+    for stmt in ast.walk(func):
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            for t in targets:
+                if (isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) and t.value.id == "self"
+                        and not t.attr.startswith("_")):
+                    found.append((t.attr, stmt.lineno))
+    return found
+
+
+def _attribute(name: str, line: int) -> dict:
+    return {"kind": "attribute", "name": name, "type": None, "settable": True, "line": line, "doc": ""}
+
+
 def _class(node: ast.ClassDef, module: str, source_path: str) -> dict:
     members: dict[str, dict] = {}
+    attributes: list[tuple[str, int]] = []
     for item in node.body:
-        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) or item.name.startswith("_"):
-            if not (isinstance(item, ast.FunctionDef) and item.name == "__init__"):
-                continue
+        if isinstance(item, (ast.Assign, ast.AnnAssign)):  # class attributes
+            for name in _assigned_names(item):
+                if not name.startswith("_"):
+                    members.setdefault(name, _attribute(name, item.lineno))
+            continue
+        if isinstance(item, ast.ClassDef) and not item.name.startswith("_"):  # nested class
+            members.setdefault(item.name, _attribute(item.name, item.lineno))
+            continue
+        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if item.name == "__init__":
+            members["__init__"] = _function(item, in_class=True)
+        attributes.extend(_self_attributes(item))  # self.<name> = ... in any method
+        if item.name.startswith("_"):
+            continue
         decorators = _decorators(item)
         if "property" in decorators:
             members[item.name] = {"kind": "property", "name": item.name, "type": _text(item.returns),
@@ -169,9 +209,32 @@ def _class(node: ast.ClassDef, module: str, source_path: str) -> dict:
                 members[item.name]["settable"] = True
         else:
             members[item.name] = _function(item, in_class=True)
+    for name, line in attributes:  # after properties and methods: those win
+        members.setdefault(name, _attribute(name, line))
     return {"kind": "class", "name": node.name, "qualified_name": f"{module}.{node.name}", "module": module,
             "bases": [ast.unparse(b) for b in node.bases], "source_path": source_path, "line": node.lineno,
             "doc": _clean_doc(ast.get_docstring(node), DOC_CHARS), "members": members}
+
+
+def _top_names(body: list[ast.stmt]) -> set[str]:
+    """Every name a module binds at top level (also inside top-level if / try / with blocks)."""
+    names: set[str] = set()
+    for item in body:
+        if isinstance(item, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(item.name)
+        elif isinstance(item, (ast.Assign, ast.AnnAssign)):
+            names.update(_assigned_names(item))
+        elif isinstance(item, ast.Import):
+            names.update(a.asname or a.name.split(".")[0] for a in item.names)
+        elif isinstance(item, ast.ImportFrom):
+            names.update(a.asname or a.name for a in item.names if a.name != "*")
+        elif isinstance(item, (ast.If, ast.With)):
+            names |= _top_names(item.body) | _top_names(getattr(item, "orelse", []))
+        elif isinstance(item, ast.Try):
+            names |= _top_names(item.body) | _top_names(item.orelse) | _top_names(item.finalbody)
+            for handler in item.handlers:
+                names |= _top_names(handler.body)
+    return names
 
 
 # ---------------------------------------------------------------- keyword classes
@@ -207,11 +270,18 @@ class _ClassParts:
     links: dict[str, str]
     docs: dict[str, str]
     elements: list[ast.AST]
+    properties: dict[str, bool]  # property name -> settable
+    methods: dict[str, dict]  # public methods of the keyword class itself
+    attributes: list[str]  # public class attributes (keyword, subkeyword, ...)
 
 
 def _class_parts(node: ast.ClassDef) -> _ClassParts:
-    parts = _ClassParts(node, [], {}, {}, [])
+    parts = _ClassParts(node, [], {}, {}, [], {}, {}, [])
     for item in node.body:
+        if isinstance(item, (ast.Assign, ast.AnnAssign)):
+            parts.attributes.extend(n for n in _assigned_names(item) if not n.startswith("_"))
+        elif isinstance(item, ast.ClassDef) and not item.name.startswith("_"):  # nested class
+            parts.attributes.append(item.name)
         if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
             target = item.targets[0].id
             if target == "_option_spec_list" and isinstance(item.value, (ast.List, ast.Tuple)):
@@ -220,10 +290,17 @@ def _class_parts(node: ast.ClassDef) -> _ClassParts:
                 parts.links = {str(_value(k)): ast.unparse(v).removeprefix("LinkType.")
                                for k, v in zip(item.value.keys, item.value.values) if k is not None}
         elif isinstance(item, ast.FunctionDef):
-            if "property" in _decorators(item):
+            decorators = _decorators(item)
+            if "property" in decorators:
                 doc = _clean_doc(ast.get_docstring(item), FIELD_DOC_CHARS)
                 parts.docs[item.name] = doc.removeprefix("Get or set the ").removeprefix("Gets or sets the ")
+                parts.properties.setdefault(item.name, False)
+            elif any(d.endswith(".setter") for d in decorators):
+                parts.properties[item.name] = True
+            elif not item.name.startswith("_"):
+                parts.methods[item.name] = _function(item, in_class=True)
             elif item.name == "__init__":
+                parts.attributes.extend(name for name, _ in _self_attributes(item))
                 for stmt in ast.walk(item):
                     if (isinstance(stmt, ast.Assign) and isinstance(stmt.targets[0], ast.Attribute)
                             and stmt.targets[0].attr == "_cards" and isinstance(stmt.value, ast.List)):
@@ -298,7 +375,10 @@ class _KeywordModule:
         node = parts.node
         return {"doc": _clean_doc(ast.get_docstring(node), DOC_CHARS), "bases": [ast.unparse(b) for b in node.bases],
                 "options": parts.options, "links": parts.links,
-                "cards": [{"card": c.pop("card"), **c} for c in cards]}
+                "cards": [{"card": c.pop("card"), **c} for c in cards],
+                # for the script check (T1.2b), not shown by lookup:
+                "properties": dict(parts.properties), "methods": dict(parts.methods),
+                "attributes": list(parts.attributes)}
 
 
 def _keyword_detail(path: Path, class_name: str) -> dict:
@@ -321,6 +401,12 @@ class Catalog:
         self._functions: dict[str, dict] = {}  # qualified name -> function record
         self._exports: dict[str, str] = {}  # name -> qualified name exported by ansys.dyna.core
         self._details: dict[tuple[Path, str], dict] = {}
+        self._modules: set[str] = set()  # parsed modules outside the keyword classes
+        self._module_names: dict[str, set[str]] = {}  # module -> every top-level name (variables too)
+        # manual subclasses of an auto keyword class with the same name and no keyword of their own
+        # (for example manual DefineTable(_AutoDefineTable)): the package exports them; lookups show
+        # the auto class, the script check adds their members
+        self._overrides: dict[str, KeywordEntry] = {}
         self._lock = threading.Lock()
         self._scan_keywords()
         self._scan_api()
@@ -330,6 +416,7 @@ class Catalog:
         return "ansys/dyna/core/" + path.relative_to(self.root).as_posix()
 
     def _scan_keywords(self) -> None:
+        raw: dict[str, tuple[str | None, str | None]] = {}  # class -> (keyword, subkeyword) as in the source
         for sub in KEYWORD_SUBDIRS:
             folder = self.root / KEYWORD_DIR / sub
             for path in sorted(folder.rglob("*.py")) if folder.is_dir() else []:
@@ -338,15 +425,46 @@ class Catalog:
                 for i, match in enumerate(matches):
                     end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
                     attrs = dict(_ATTR_RE.findall(text, match.end(), end))
-                    if "keyword" not in attrs and "KeywordBase" not in match.group(2):
+                    name = match.group(1)
+                    line = text.count("\n", 0, match.start()) + 1
+                    bases = [b.strip().split("[")[0] for b in match.group(2).split(",")]
+                    # an alias subclass such as Mat107(MatModifiedJohnsonCook) with only its own subkeyword
+                    parent = next((b for b in bases if b in raw and b != name), None)
+                    if "keyword" not in attrs and "KeywordBase" not in bases and not (parent and "subkeyword" in attrs):
+                        if sub == "manual" and name in self._by_class and not name.startswith("_"):
+                            self._overrides[name] = KeywordEntry(name, self._by_class[name][-1].keyword, path, line)
                         continue
-                    keyword = None
-                    if "keyword" in attrs:
-                        keyword = "*" + attrs["keyword"] + ("_" + attrs["subkeyword"] if attrs.get("subkeyword") else "")
-                    entry = KeywordEntry(match.group(1), keyword, path, text.count("\n", 0, match.start()) + 1)
+                    inherited = raw.get(parent, (None, None)) if parent else (None, None)
+                    word = attrs.get("keyword", inherited[0])
+                    subword = attrs["subkeyword"] if "subkeyword" in attrs else inherited[1]
+                    raw[name] = (word, subword)
+                    keyword = "*" + word + ("_" + subword if subword else "") if word else None
+                    entry = KeywordEntry(name, keyword, path, line)
                     self._by_class.setdefault(entry.class_name, []).append(entry)
                     if keyword:
                         self._by_keyword.setdefault(keyword, []).append(entry)
+        # The class used for a name is the last one: the one the package exports (auto_keywords.py,
+        # manual_keywords.py), manual before auto. Not exported: legacy versions such as
+        # manual/mat_295_version_0_9_1.py (Mat295Legacy, also *MAT_295).
+        exported = self._exported_keyword_classes()
+        if exported:
+            def rank(entry: KeywordEntry) -> tuple[bool, bool]:
+                return entry.class_name in exported, (self.root / KEYWORD_DIR / "manual") in entry.path.parents
+            for entries in (*self._by_class.values(), *self._by_keyword.values()):
+                entries.sort(key=rank)
+
+    def _exported_keyword_classes(self) -> set[str]:
+        names: set[str] = set()
+        for module in ("auto_keywords.py", "manual_keywords.py"):
+            path = self.root / KEYWORD_DIR / module
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    names.update(a.asname or a.name for a in node.names if a.name != "*")
+        return names
 
     def _scan_api(self) -> None:
         keyword_root = self.root / KEYWORD_DIR
@@ -364,6 +482,8 @@ class Catalog:
             except (SyntaxError, UnicodeDecodeError, ValueError):
                 self.skipped.append(self._source_path(path))
                 continue
+            self._modules.add(module)
+            self._module_names[module] = _top_names(tree.body)
             for item in tree.body:
                 if module == PACKAGE and isinstance(item, ast.ImportFrom) and item.module:
                     for alias in item.names:
@@ -402,12 +522,27 @@ class Catalog:
                     raise CatalogError(f"cannot read {self._source_path(entry.path)}: {exc}") from None
             return self._details[key]
 
+    def _cards_detail(self, entry: KeywordEntry) -> dict:
+        """The detail of a keyword class; an alias subclass without cards of its own (Mat107 of
+        MatModifiedJohnsonCook) gets the cards, options and links of its keyword base class."""
+        detail = self._detail(entry)
+        if detail["cards"]:
+            return detail
+        for base in detail["bases"]:
+            base = base.split("[")[0]
+            if base in self._by_class and base != entry.class_name:
+                inner = self._cards_detail(self._by_class[base][-1])
+                return {**detail, "cards": inner["cards"], "options": detail["options"] or inner["options"],
+                        "links": detail["links"] or inner["links"], "cards_from": base}
+        return detail
+
     def _keyword_record(self, entries: list[KeywordEntry], option: str | None = None) -> dict:
         entry = entries[-1]
-        detail = self._detail(entry)
+        detail = self._cards_detail(entry)
         record = {"kind": "keyword", "keyword": entry.keyword, "class": entry.class_name,
                   "import": f"from {PACKAGE} import keywords  # then keywords.{entry.class_name}()",
-                  **self._base(self._source_path(entry.path), entry.line), **detail,
+                  **self._base(self._source_path(entry.path), entry.line),
+                  **{k: v for k, v in detail.items() if k not in _DETAIL_INTERNAL},
                   "note": "field names are the Python attribute names (lower case); in the deck they are upper case"}
         if option:
             record["found_with_option"] = option
@@ -458,7 +593,7 @@ class Catalog:
         for cut in range(len(parts) - 1, 0, -1):  # *MAT_024_TITLE -> *MAT_024 with option TITLE
             base, option = "_".join(parts[:cut]), "_".join(parts[cut:])
             if base in self._by_keyword:
-                if option in self._detail(self._by_keyword[base][-1])["options"]:
+                if option in self._cards_detail(self._by_keyword[base][-1])["options"]:
                     return self._keyword_record(self._by_keyword[base], option)
         return None
 
@@ -500,8 +635,139 @@ class Catalog:
             raise CatalogError(f"{text} is ambiguous; use one of: {', '.join(ambiguous)}")
         raise CatalogError(f"{text} is not in {DISTRIBUTION} {self.version}." + self._hint(text))
 
-    def _hint(self, text: str) -> str:
-        names = self.names()
+    # -------------------------------------------------- for the script check (api_check.py, T1.2b)
+    def resolve(self, path: str, _depth: int = 0) -> dict | None:
+        """What a dotted name under ansys.dyna.core is: module, keyword_namespace, keyword_class, class,
+        function or member (``{"kind": ..., "name": ...}``), or None when the catalog does not know it."""
+        if path == PACKAGE or PACKAGE.startswith(path + "."):
+            return {"kind": "module", "name": path}
+        if path in KEYWORD_NAMESPACES:
+            return {"kind": "keyword_namespace", "name": path}
+        parent, _, name = path.rpartition(".")
+        if parent in KEYWORD_NAMESPACES and name in self._by_class:
+            return {"kind": "keyword_class", "name": name}
+        if parent == PACKAGE and name in self._exports and _depth < 3:
+            return self.resolve(self._exports[name], _depth + 1)
+        if path in self._modules or self._module_file(path):
+            return {"kind": "module", "name": path}
+        if (parent not in KEYWORD_NAMESPACES and self._module_file(parent)
+                and (self.root / KEYWORD_DIR) in self._module_file(parent).parents):
+            # a name in one keyword file (keyword_classes.auto.mat.mat_024.Mat024): keyword class or not checked
+            if name in self._by_class:
+                return {"kind": "keyword_class", "name": name}
+            return {"kind": "variable", "name": path}
+        if path in self._classes:
+            return {"kind": "class", "name": path}
+        if path in self._functions:
+            return {"kind": "function", "name": path}
+        if name in self._module_names.get(parent, ()):  # a variable, a private or an imported name
+            return {"kind": "variable", "name": path}
+        owner = self.resolve(parent, _depth + 1) if parent and _depth < 3 else None
+        if owner is not None and owner["kind"] == "class":  # also through an export: ansys.dyna.core.Deck.write
+            members, _ = self.class_members(owner["name"])
+            if name in members:
+                return {"kind": "member", "name": f"{owner['name']}.{name}", "class": owner["name"]}
+        return None
+
+    def _module_file(self, path: str) -> Path | None:
+        """The file or package folder of a dotted module name under the package, if it exists."""
+        if not path.startswith(PACKAGE + "."):
+            return None
+        base = self.root.joinpath(*path[len(PACKAGE) + 1:].split("."))
+        for candidate in (base.with_suffix(".py"), base / "__init__.py", base):
+            if candidate.exists() and (candidate.suffix == ".py" or candidate.is_dir()):
+                return candidate
+        return None
+
+    def module_members(self, module: str) -> list[str]:
+        """Public names of a module (for close names): classes, functions, submodules, exports."""
+        if module in KEYWORD_NAMESPACES:
+            return list(self._by_class)
+        names = [q.rsplit(".", 1)[1] for q in (*self._classes, *self._functions, *self._modules)
+                 if q.rpartition(".")[0] == module]
+        names += sorted(n for n in self._module_names.get(module, ()) if not n.startswith("_"))
+        return list(dict.fromkeys(names))
+
+    def _base_class(self, base: str, module: str) -> str | None:
+        base = base.split("[")[0]
+        for candidate in (base, f"{module}.{base}"):
+            if candidate in self._classes:
+                return candidate
+        found = self._short.get(base.rsplit(".", 1)[-1], [])
+        return found[0] if len(found) == 1 else None
+
+    def class_members(self, qualified: str) -> tuple[dict, bool]:
+        """Public members of a class and its bases, and whether every base is in the catalog
+        (when one is not, a missing name may come from it, so the check stays silent)."""
+        members: dict[str, dict] = {}
+        complete, seen, queue = True, set(), [qualified]
+        while queue:
+            name = queue.pop(0)
+            if name in seen:
+                continue
+            seen.add(name)
+            cls = self._classes[name]
+            for member, record in cls["members"].items():
+                members.setdefault(member, record)
+            for base in cls["bases"]:
+                found = self._base_class(base, cls["module"])
+                if found:
+                    queue.append(found)
+                elif base not in TRIVIAL_BASES and not base.startswith("metaclass"):
+                    complete = False
+        return members, complete
+
+    def keyword_api(self, class_name: str, _depth: int = 0) -> dict:
+        """What a script may use on a keyword class: constructor fields (with their option), properties
+        (settable or not), methods and attributes of the class and its bases."""
+        entries = self._by_class[class_name]
+        entry = entries[-1]
+        detail = self._cards_detail(entry)
+        fields: dict[str, str | None] = {}
+        for card in detail["cards"]:
+            names = [f["name"] for f in card["fields"]] + ([card["name"]] if card.get("name") else [])
+            for name in names:
+                if isinstance(name, str):
+                    fields.setdefault(name, card.get("option"))
+        members: dict[str, dict] = {n: {"kind": "property", "name": n, "settable": s}
+                                    for n, s in detail["properties"].items()}
+        for name, record in detail["methods"].items():
+            members.setdefault(name, record)
+        for name in detail["attributes"]:
+            members.setdefault(name, _attribute(name, entry.line))
+        override = self._overrides.get(class_name)
+        if override is not None and _depth == 0:
+            extra = self._detail(override)
+            for name, settable in extra["properties"].items():
+                members[name] = {"kind": "property", "name": name, "settable": settable}
+            for name, record in extra["methods"].items():
+                members[name] = record
+            for name in extra["attributes"]:
+                members.setdefault(name, _attribute(name, override.line))
+        complete = True
+        for base in detail["bases"]:
+            base = base.split("[")[0]
+            if base in self._by_class and base != class_name and _depth < 3:
+                inner = self.keyword_api(base, _depth + 1)
+                for name, option in inner["fields"].items():
+                    fields.setdefault(name, option)
+                for name, record in inner["members"].items():
+                    members.setdefault(name, record)
+                complete = complete and inner["complete"]
+                continue
+            found = self._base_class(base, "")
+            if found:
+                inherited, base_complete = self.class_members(found)
+                for name, record in inherited.items():
+                    if name != "__init__":
+                        members.setdefault(name, record)
+                complete = complete and base_complete
+            elif base not in TRIVIAL_BASES:
+                complete = False
+        return {"keyword": entry.keyword, "class": class_name, "fields": fields, "members": members,
+                "options": list(detail["options"]), "complete": complete}
+
+    def close_names(self, text: str, names: list[str]) -> list[str]:
         padded = re.sub(r"(\d+)$", lambda m: m.group(1).zfill(3), text)  # Mat24 -> Mat024, *MAT_24 -> *MAT_024
         close: list[str] = []
         for variant in dict.fromkeys((padded, text, text.upper())):
@@ -509,7 +775,10 @@ class Catalog:
                 close.append(variant)
             close.extend(c for c in difflib.get_close_matches(variant, names, n=CLOSE_NAMES, cutoff=0.75)
                          if c not in close)
-        close = close[:CLOSE_NAMES]
+        return close[:CLOSE_NAMES]
+
+    def _hint(self, text: str) -> str:
+        close = self.close_names(text, self.names())
         return f" Close names: {', '.join(close)}." if close else " Use search_pydyna_api to find it."
 
 

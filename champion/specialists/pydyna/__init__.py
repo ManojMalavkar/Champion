@@ -8,7 +8,8 @@
 The tools are in ``tools.py`` (the old PyDyna_Agent tools; search through the
 track-local stub ``search.py`` until M1), the knowledge records in ``records.py``
 (T1.0), the exact API records of the installed ansys-dyna-core in ``api_catalog.py``
-(T1.2a, tool ``lookup_api``). Writing script files (T1.2) and running them (T1.4) come later.
+(T1.2a, tool ``lookup_api``), the API check of a script in ``api_check.py`` (T1.2b, tool
+``check_pydyna_script``). Writing script files (T1.2) and running them (T1.4) come later.
 ``agents.pydyna.enabled: false`` switches the group off; ``agents.<member>.enabled``
 a sub-agent. Importing loads no database or model (that happens on the first search).
 
@@ -58,20 +59,27 @@ CODE = SpecialistSpec(
     name="pydyna_code",
     title="Code",
     description=("PyDyna (ansys-dyna-core) Python expert: how to build or change an LS-DYNA deck in Python, "
-                 "which PyDyna classes and methods to use, with example code. It does not write files or run "
-                 "code yet. Give it what the script must do."),
+                 "which PyDyna classes and methods to use, with example code, and checking a PyDyna script "
+                 "(a .py file in the working folder or code text) against the installed API. It does not "
+                 "write files or run code yet. Give it what the script must do, or the script to check."),
     instructions=f"""You are PyDyna's Code sub-agent. You write PyDyna (ansys-dyna-core) Python.
 - lookup_api for every class, method, property and keyword class you use: exact names,
   parameters, required arguments and the import line of the installed version. Never use a
   name lookup_api does not confirm.
 - search_pydyna_api to find how to do something (examples, docs); then confirm with lookup_api.
 - lookup_keyword for units and limits of the keyword fields the code sets.
+- check_pydyna_script (code=...) on every script before you give it; fix every error and
+  warning and check again. Warnings matter: PyDyna ignores unknown field names without an error,
+  and a field of an option card (TITLE, ID ...) given to the constructor is not written
+  unless the option is switched on.
+- To review a user's script, check_pydyna_script (path=...) and report the issues with their
+  lines and close names; then propose the fixed lines.
 - Give the code in the answer, with the imports, and list the sources it is based on.
   You cannot write files or run code yet; say so if asked.
 {SHARED_RULES}""",
     tools=CODE_TOOLS,
     routing_hints=("write a PyDyna script that builds a deck with one shell part",
-                   "how do I add *CONTROL_TERMINATION with PyDyna"),
+                   "how do I add *CONTROL_TERMINATION with PyDyna", "check my PyDyna script build_deck.py"),
 )
 
 DPF_POST = SpecialistSpec(
@@ -94,10 +102,11 @@ PYDYNA = register_specialist(SpecialistSpec(
     description=("PyDyna and LS-DYNA knowledge specialist: LS-DYNA keyword cards and fields, material and "
                  "contact choice, checking card parameters, PyDyna (ansys-dyna-core) code for building decks, "
                  "PyDPF-Post code for d3plot / binout results. Answers from its knowledge base with sources; "
-                 "it does not read the user's model files or run scripts yet."),
+                 "it checks PyDyna scripts against the installed API without running them; it does not read "
+                 "the user's model files or run scripts yet."),
     instructions="""You are PyDyna. You lead three sub-agents and send each part of the task to the right one:
 - keyword: LS-DYNA keyword cards, fields, material / contact / section choice, parameter checks.
-- code: PyDyna (ansys-dyna-core) Python for building or changing decks.
+- code: PyDyna (ansys-dyna-core) Python for building or changing decks, and checking PyDyna scripts.
 - dpf_post: PyDPF-Post Python for d3plot / binout results.
 Give a sub-agent the complete question. Combine their answers into one concise result for
 Champion, keep their sources, and never add facts they did not report.""",

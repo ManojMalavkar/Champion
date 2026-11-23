@@ -4,6 +4,7 @@
 Tool                       Sub-agent           Data
 =========================  ==================  ==================================
 lookup_api                 Keyword, Code       installed ansys-dyna-core (api_catalog.py)
+check_pydyna_script        Code                a script (file or text) + installed package (api_check.py)
 lookup_keyword             Keyword, Code       keyword JSONL (records.py, merged)
 validate_keyword_params    Keyword             keyword JSONL
 search_keyword             Keyword             ``lsdyna_keywords`` (+ category)
@@ -16,7 +17,11 @@ search_pydpf_post          DPF-Post            ``pydpf_post``
 21 Nov 2026): here ``search_keyword`` has a real ``category`` filter instead
 (``material``, ``contact``, ...).
 
-Every tool has a policy entry with right ``none``: it reads only Champion's own
+``check_pydyna_script`` checks script text at every access level; given a path, it reads
+that one ``.py`` file only through the path policy with right ``read`` (``check_path``, as
+``code_check``: blocked at a level without read, sensitive files and symbolic links
+refused). It never runs or imports the script. Every tool has a policy entry with right
+``none``; apart from that one file, a tool reads only Champion's own
 PyDyna knowledge base (paths from the config) or the files of the ansys-dyna-core
 package installed in Champion's Python (``lookup_api``, parsed, never imported or
 run), never the user's files, and sends nothing out. Results are JSON text with sources (keyword record
@@ -32,6 +37,8 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
+import stat
 import threading
 from pathlib import Path
 from typing import Any
@@ -40,8 +47,9 @@ from agents import RunContextWrapper, function_tool
 
 from champion.core.config import Config
 from champion.core.context import ChampionContext
+from champion.policy.scope import check_path, open_no_symlinks
 from champion.policy.tool_policy import ToolRule, register
-from champion.specialists.pydyna import api_catalog
+from champion.specialists.pydyna import api_catalog, api_check
 from champion.specialists.pydyna import records as rec
 from champion.specialists.pydyna.search import SearchBackend, SearchUnavailable, backend_for
 from champion.tools.guard import ToolError, run_guarded
@@ -51,9 +59,13 @@ KEYWORD_TEXT_CHARS = 300  # as the old search_keyword
 CODE_TEXT_CHARS = 1800  # as the old search_pydyna_api / search_pydpf_post
 CODE_FETCH_FACTOR = 5  # the old database still holds tests and repository files: ask for more, keep n
 CODE_FETCH_MAX = 100
+MAX_SCRIPT_BYTES = 1024 * 1024
 
 for _rule in (
     ToolRule("lookup_api", "none", "Exact PyDyna (ansys-dyna-core) API record from the installed package"),
+    # right none: code text needs no access; a path goes through check_path(..., "read")
+    ToolRule("check_pydyna_script", "none",
+             "Check a PyDyna script against the installed ansys-dyna-core API (nothing is run)"),
     ToolRule("lookup_keyword", "none", "Full record of one LS-DYNA keyword from the PyDyna knowledge base"),
     ToolRule("validate_keyword_params", "none", "Check keyword card parameters against the PyDyna knowledge base"),
     ToolRule("search_keyword", "none", "Search LS-DYNA keywords in the PyDyna knowledge base"),
@@ -129,6 +141,41 @@ def api_record(catalog: api_catalog.Catalog, name: str) -> str:
         return _json(catalog.lookup(name))
     except api_catalog.CatalogError as exc:
         raise ToolError(str(exc)) from None
+
+
+def _read_script(context: ChampionContext, path: str) -> tuple[str, str]:
+    target = check_path(context.level, context.working_directory, path, "read")
+    if target.suffix.lower() != ".py":
+        raise ToolError(f"{target} is not a Python file (.py)")
+    try:
+        fd = open_no_symlinks(target, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except FileNotFoundError:
+        raise ToolError(f"{target} does not exist") from None
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ToolError(f"{target} is not a regular file")
+        if info.st_size > MAX_SCRIPT_BYTES:
+            raise ToolError(f"{target} is larger than {MAX_SCRIPT_BYTES // 1024} KB")
+        data = stream.read(MAX_SCRIPT_BYTES + 1)
+    try:
+        return data.decode("utf-8"), str(target)
+    except UnicodeDecodeError as exc:
+        raise ToolError(f"{target} is not UTF-8 (byte {exc.start})") from None
+
+
+def script_check(context: ChampionContext, catalog: api_catalog.Catalog, path: str | None = None,
+                 code: str | None = None) -> str:
+    """JSON result of the PyDyna API check of one script, given as a file path or as text."""
+    if (path is None) == (code is None):
+        raise ToolError("give either path (a .py file in the working folder) or code (the script text), not both")
+    if code is not None:
+        if len(code.encode("utf-8")) > MAX_SCRIPT_BYTES:
+            raise ToolError(f"code is larger than {MAX_SCRIPT_BYTES // 1024} KB")
+        text, name = code, "<code>"
+    else:
+        text, name = _read_script(context, path)
+    return _json(api_check.check_source(catalog, text, name))
 
 
 def installed_catalog() -> api_catalog.Catalog:
@@ -301,6 +348,24 @@ async def search_pydpf_post(ctx: RunContextWrapper[ChampionContext], query: str,
                              lambda: search_dpf_post(ctx.context.config, _backend(ctx.context), query, n_results))
 
 
+@function_tool
+async def check_pydyna_script(ctx: RunContextWrapper[ChampionContext], path: str | None = None,
+                              code: str | None = None) -> str:
+    """Check a PyDyna (ansys-dyna-core) script against the API of the installed package; nothing is run.
+    Reports, with line numbers: unknown imports, keyword classes, methods and attributes; unknown,
+    missing or too many arguments; positional arguments to keyword classes; read-only properties;
+    names that are not fields of a keyword (PyDyna ignores them without an error); fields of an
+    option card (such as TITLE) given to the constructor without switching the option on.
+
+    Args:
+        path: A .py file; a relative path starts at the working folder. Give path or code.
+        code: The script text, for a script that is not saved yet. Give path or code.
+    """
+    arguments = {"path": path} if path is not None else {"code_chars": len(code or "")}
+    return await run_guarded(ctx, "check_pydyna_script", arguments,
+                             lambda: script_check(ctx.context, installed_catalog(), path, code))
+
+
 KEYWORD_TOOLS = (lookup_keyword, search_keyword, validate_keyword_params, lookup_api)
-CODE_TOOLS = (lookup_api, search_pydyna_api, lookup_keyword)
+CODE_TOOLS = (lookup_api, search_pydyna_api, lookup_keyword, check_pydyna_script)
 DPF_POST_TOOLS = (search_pydpf_post,)

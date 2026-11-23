@@ -25,7 +25,7 @@ from champion.tools.guard import ToolError, run_guarded
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "knowledge-base"
 TOOL_NAMES = ["lookup_keyword", "validate_keyword_params", "search_keyword", "search_pydyna_api", "search_pydpf_post",
-              "lookup_api"]
+              "lookup_api", "check_pydyna_script"]
 
 
 class FakeBackend:
@@ -61,7 +61,8 @@ def test_pydyna_group_has_three_sub_agents_and_every_tool_a_policy_entry():
     assert [m.title for m in PYDYNA.members] == ["Keyword", "Code", "DPF-Post"]
     assert PYDYNA.members[0].tool_names == ["lookup_keyword", "search_keyword", "validate_keyword_params",
                                             "lookup_api"]
-    assert PYDYNA.members[1].tool_names == ["lookup_api", "search_pydyna_api", "lookup_keyword"]
+    assert PYDYNA.members[1].tool_names == ["lookup_api", "search_pydyna_api", "lookup_keyword",
+                                            "check_pydyna_script"]
     assert PYDYNA.members[2].tool_names == ["search_pydpf_post"]
     used = {name for spec in walk_specs(PYDYNA) for name in spec.tool_names}
     assert used == set(TOOL_NAMES)
