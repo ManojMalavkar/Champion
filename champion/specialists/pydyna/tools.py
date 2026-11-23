@@ -3,6 +3,7 @@
 =========================  ==================  ==================================
 Tool                       Sub-agent           Data
 =========================  ==================  ==================================
+lookup_api                 Keyword, Code       installed ansys-dyna-core (api_catalog.py)
 lookup_keyword             Keyword, Code       keyword JSONL (records.py, merged)
 validate_keyword_params    Keyword             keyword JSONL
 search_keyword             Keyword             ``lsdyna_keywords`` (+ category)
@@ -16,8 +17,9 @@ search_pydpf_post          DPF-Post            ``pydpf_post``
 (``material``, ``contact``, ...).
 
 Every tool has a policy entry with right ``none``: it reads only Champion's own
-PyDyna knowledge base (paths from the config), never the user's files, and
-sends nothing out. Results are JSON text with sources (keyword record
+PyDyna knowledge base (paths from the config) or the files of the ansys-dyna-core
+package installed in Champion's Python (``lookup_api``, parsed, never imported or
+run), never the user's files, and sends nothing out. Results are JSON text with sources (keyword record
 ``sources``, ``source_path`` and ``chunk_index`` for code chunks), the raw
 ``distance`` and the old ``score`` (1 - distance).
 
@@ -39,6 +41,7 @@ from agents import RunContextWrapper, function_tool
 from champion.core.config import Config
 from champion.core.context import ChampionContext
 from champion.policy.tool_policy import ToolRule, register
+from champion.specialists.pydyna import api_catalog
 from champion.specialists.pydyna import records as rec
 from champion.specialists.pydyna.search import SearchBackend, SearchUnavailable, backend_for
 from champion.tools.guard import ToolError, run_guarded
@@ -50,6 +53,7 @@ CODE_FETCH_FACTOR = 5  # the old database still holds tests and repository files
 CODE_FETCH_MAX = 100
 
 for _rule in (
+    ToolRule("lookup_api", "none", "Exact PyDyna (ansys-dyna-core) API record from the installed package"),
     ToolRule("lookup_keyword", "none", "Full record of one LS-DYNA keyword from the PyDyna knowledge base"),
     ToolRule("validate_keyword_params", "none", "Check keyword card parameters against the PyDyna knowledge base"),
     ToolRule("search_keyword", "none", "Search LS-DYNA keywords in the PyDyna knowledge base"),
@@ -119,6 +123,20 @@ def _query(backend: SearchBackend, collection: str, text: str, n: int, where: di
 
 
 # ---------------------------------------------------------------- the work (testable without the SDK)
+
+def api_record(catalog: api_catalog.Catalog, name: str) -> str:
+    try:
+        return _json(catalog.lookup(name))
+    except api_catalog.CatalogError as exc:
+        raise ToolError(str(exc)) from None
+
+
+def installed_catalog() -> api_catalog.Catalog:
+    try:
+        return api_catalog.catalog_for()
+    except api_catalog.CatalogError as exc:
+        raise ToolError(str(exc)) from None
+
 
 def lookup(config: Config, keyword_name: str) -> str:
     records, index = keywords(config)
@@ -198,6 +216,20 @@ def _backend(context: ChampionContext) -> SearchBackend:
 # ---------------------------------------------------------------- tools
 
 @function_tool
+async def lookup_api(ctx: RunContextWrapper[ChampionContext], name: str) -> str:
+    """Get the exact record of a PyDyna (ansys-dyna-core) name from the installed package, with its
+    version and source file: a class (import line, methods with signatures, properties), a method or
+    property (parameters, required or not, types, defaults, return type, docstring), or a keyword
+    class (every card in order with Python field names, types, positions, widths, defaults,
+    descriptions, options and curve links). Unknown names come back with close names.
+
+    Args:
+        name: For example "Deck", "Deck.import_file", "Mat024", "keywords.SectionShell", "*MAT_024" or "*MAT_024_TITLE".
+    """
+    return await run_guarded(ctx, "lookup_api", {"name": name}, lambda: api_record(installed_catalog(), name))
+
+
+@function_tool
 async def lookup_keyword(ctx: RunContextWrapper[ChampionContext], keyword_name: str) -> str:
     """Get the full record of one LS-DYNA keyword: category, description, aliases and every card
     field (type, card number, default, unit, limits, required) with its sources.
@@ -269,6 +301,6 @@ async def search_pydpf_post(ctx: RunContextWrapper[ChampionContext], query: str,
                              lambda: search_dpf_post(ctx.context.config, _backend(ctx.context), query, n_results))
 
 
-KEYWORD_TOOLS = (lookup_keyword, search_keyword, validate_keyword_params)
-CODE_TOOLS = (search_pydyna_api, lookup_keyword)
+KEYWORD_TOOLS = (lookup_keyword, search_keyword, validate_keyword_params, lookup_api)
+CODE_TOOLS = (lookup_api, search_pydyna_api, lookup_keyword)
 DPF_POST_TOOLS = (search_pydpf_post,)
