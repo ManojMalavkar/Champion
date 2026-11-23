@@ -156,7 +156,21 @@ def check_paths(config: Config) -> list[CheckResult]:
         results.append(CheckResult("PyDyna Python", WARN, f"not an executable file: {python}"))
     else:
         results.append(CheckResult("PyDyna Python", OK, python))
+    results.append(check_memory(config))
     return results
+
+
+def check_memory(config: Config) -> CheckResult:
+    """M6: one line; with memory on, the user memory folder must be writable."""
+    if not config.get("memory.enabled"):
+        return CheckResult("Memory", OK, "off (memory.enabled: false)")
+    root = Path(config.get("memory.user_root"))
+    parent = _nearest_existing(root)
+    layers = [name for name, key in (("runtime state", "runtime_state"), ("summaries", "summaries"),
+                                     ("preferences", "preferences")) if config.get(f"memory.{key}")]
+    if not os.access(parent, os.W_OK):
+        return CheckResult("Memory", FAIL, f"{root}: cannot write in {parent}")
+    return CheckResult("Memory", OK, f"on: {', '.join(layers) or 'working memory only'}; {root}")
 
 
 def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[CheckResult]:

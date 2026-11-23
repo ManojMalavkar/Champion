@@ -166,10 +166,16 @@ def orchestrator_instructions(specs: Iterable[SpecialistSpec]) -> str:
 
 
 def with_current_level(instructions: str):
+    """Instructions with the current access level; M6: plus the memory notes (preferences for every
+    agent; summaries and working memory only for the orchestrator)."""
     def render(ctx: RunContextWrapper[ChampionContext], agent: Agent[ChampionContext]) -> str:
-        return (f"{instructions}\n\nCurrent access level: {ctx.context.level.describe()}. "
+        text = (f"{instructions}\n\nCurrent access level: {ctx.context.level.describe()}. "
                 "This current level supersedes any earlier level mentioned in the conversation. "
                 "Tools enforce the actual policy and may still block an operation.")
+        memory = getattr(ctx.context, "memory", None)
+        if memory is not None:
+            text += memory.instruction_blocks(orchestrator=getattr(agent, "name", "") == ORCHESTRATOR_NAME)
+        return text
     return render
 
 

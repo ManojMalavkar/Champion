@@ -84,13 +84,16 @@ class AuditLog:
             self._db.commit()
 
     def record(self, *, tool: str, arguments: dict, access_level: str, decision: str,
-               reason: str = "", result_chars: int = 0, seconds: float = 0.0, agent: str = "") -> None:
+               reason: str = "", result_chars: int = 0, seconds: float = 0.0, agent: str = "") -> int | None:
+        """Write one row; returns its row ID (M6: ``audit_id`` of the runtime state)."""
         args = json.dumps(arguments, default=str, ensure_ascii=False)[:MAX_ARGUMENT_CHARS]
         row = (self.session_id, datetime.now(timezone.utc).isoformat(timespec="milliseconds"), agent, tool,
                args, access_level, decision, reason[:MAX_ARGUMENT_CHARS], result_chars, round(seconds, 4))
         with self._lock:
-            self._db.execute(f"INSERT INTO tool_events ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", row)
+            cursor = self._db.execute(
+                f"INSERT INTO tool_events ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", row)
             self._db.commit()
+            return cursor.lastrowid
 
     def recent(self, limit: int = 20, *, this_session: bool = True) -> list[dict]:
         query = f"SELECT {', '.join(COLUMNS)} FROM tool_events"
