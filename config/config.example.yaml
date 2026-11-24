@@ -85,28 +85,28 @@ storage:
   log_dir: logs
 
 agents:
-  pydyna:
-    enabled: true
   linux_coder:
     enabled: true
   coder:
     enabled: true
 
-pydyna:
-  database_path: null               # existing Chroma vector_db folder (step 3)
-  keyword_reference_path: null      # knowledge-base/keyword_reference.jsonl (step 3)
-  python_path: null                 # Python with ansys-dyna-core (step 8)
+# M1: limits of the core file tools (were pydyna.*; the old names still work with a warning)
+files:
   large_file_bytes: 104857600       # 100 MiB: files this size or larger use large-file mode
   max_model_bytes: 8589934592       # 8 GiB: larger files are refused
-  max_include_files: 1024
-  max_include_depth: 64
-  model_timeout_seconds: 120
-  max_memory_bytes: 4294967296
+  model_timeout_seconds: 120        # time limit of one pass over a large file
+
+# M1: knowledge layer. Each agent's root is <section>.knowledge_root in its own section
+# (default knowledge/<agent> in the project folder); see config/examples/.
+knowledge:
+  offline: true                     # embedding model from the local Hugging Face cache only
+  verify_hash: true                 # SHA-256 of the database files before and after opening
+  max_results: 20                   # most results of one search or lookup (1-100)
+  fetch_factor: 5                   # with an agent's filter: fetch this many times more, then filter
+  max_hit_chars: 1500               # text of one result is cut to this
 
 kb:
-  sources:
-    pydyna: null                    # local checkout of the PyDyna repository
-    pydpf_post: null                # local checkout of the PyDPF-Post repository
+  sources: {}                       # name: local checkout of a source repository
   max_source_file_bytes: 2097152    # 2 MiB: larger source files are skipped
 
 mcp:

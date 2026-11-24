@@ -1797,7 +1797,7 @@ Format: `CR-n (track, date): what - why - status`.
 * T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
 * T5 Skills: branch created; can start. Plan: `docs/tracks/skills.md`
 * T6 Full vehicle model: branch created; can start. Plan: `docs/tracks/vehicle-model.md`
-* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); CR-1 and CR-2 (M6 memory hook) done; next M1 and M2
+* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); CR-1 and CR-2 (M6 memory hook) done; M1 knowledge layer built (24 Nov 2026, 377 tests; walkthrough `docs/steps/m1-knowledge-layer.md`), committed on `main` ("Step M1"), not pushed; next M2
 * T8 Memory: T8.1-T8.4 (L0-L3 library, 50 tests) built on `track/memory` (`a35412d`) and now also on `main` through CR-2; M6 hook done (CR-2); T8.5+ wait for decisions D1-D5. Plan: `docs/tracks/memory.md`
 * T9 TUI: branch created; T9.1 can start. Plan: `docs/tracks/tui.md`
 
@@ -1809,6 +1809,20 @@ Format: `CR-n (track, date): what - why - status`.
 - [x] Tests: 17 new in `tests/test_parallel_enablers.py`; 269 pass on Databricks serverless.
 - [x] Track branches `track/pydyna`, `track/hpc`, `track/ansa-meta`, `track/primer`, `track/skills`, `track/vehicle-model` created from `main` after the M0 commit.
 - [ ] Local check (user, Linux machine): `pytest -q` 269 passed; `champion chat --level 1.2` start line still `coder_agent, linux_coder_agent`; one question and one edit work as before.
+
+#### M1 status (built 24 Nov 2026, commit "Step M1" on `main`, not pushed)
+Decisions (user, 24 Nov 2026): (1) Chroma opened in place read-only, stop if any database file changes; (2) builder is a library function plus `champion kb build --agent X`; (3) option 3b: core file limits move to a new `files` section, the rest of `pydyna` leaves core and is declared by the PyDyna package; (4) `champion kb status` is part of M1.
+- [x] M1.1 `champion/knowledge/root.py`: root `<section>.knowledge_root`, default `knowledge/<agent>`; inside the project folder only, no symbolic links; database folders `vector_db` or `vector_db_<name>`.
+- [x] M1.2 `manifest.py`: `MANIFEST.json` per database folder (count, model, dimension, space, source files with SHA-256); also reads the T1.3b track format.
+- [x] M1.3 `store.py`: Chroma opened in place, no embedding function, no writes; SHA-256 fingerprint of all files before and after each use; a change stops the store for the session (`DatabaseChanged`). Chroma 1.5.9 probe: query and get change no file.
+- [x] M1.4 `embedding.py`: sentence-transformers from the local cache only (`knowledge.offline`, `HF_HUB_OFFLINE=1`); clear error with the download command. Vectors equal Chroma's own embedding function (bge-small-en-v1.5, 384, max difference 0.0).
+- [x] M1.5 `registry.py`, `search.py`, `tools.py`: agents declare `KnowledgeSpec`/`KnowledgeCollection`; `make_search_tool` / `make_lookup_tool` (right none, strict schema, filters, track `keep` function); results show score, distance, source, chunk. Model and dimension checked against the manifest.
+- [x] M1.6 `builder.py` + `champion kb build --agent X [--collection C] [--replace] [--allow-foreign]`: refuses an existing collection without `--replace`, a database without `MANIFEST.json` without `--allow-foreign`, duplicate ids; count checked after the build.
+- [x] M1.7 `status.py`, `champion kb status [--agent X] [--verify]` and a knowledge block in `champion doctor`.
+- [x] M1.8 config: `files` section (`large_file_bytes`, `max_model_bytes`, `model_timeout_seconds`, old `pydyna.*` names still work with a warning), `knowledge` section; `pydyna` and `agents.pydyna` removed from core defaults; core tools read `files.*`; extra `knowledge` in `pyproject.toml`; `knowledge/*/vector_db*/` in `.gitignore`.
+- [x] Tests: 28 new in `tests/test_knowledge.py` (fake embedder; Chroma tests skip without chromadb); 377 pass on Databricks serverless. A real old-style database (no manifest, default space) gives the same ids and distances through M1 as a direct Chroma query, and no file changes.
+- [ ] PyDyna track: replace its `search.py` stub with `KnowledgeSpec` + tool factory, declare its `pydyna` section (`database_path` etc. no longer in core) after merging `main`.
+- [ ] Local check (user, Linux machine): `pytest -q` 377 passed; `champion kb status --agent pydyna` on the real databases (after the track change); `champion chat` start line unchanged.
 
 Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and key there are the old agent's LLM connection (GenAI gateway, mTLS). The T2 port does not use them: `hpc_agent` uses the model defined in Champion's config (`llm` section, AI Gateway) like every other agent. No certificates or keys are copied into Champion; secret files stay blocked.
 

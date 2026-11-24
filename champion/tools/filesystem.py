@@ -7,7 +7,7 @@ Each tool has two parts:
   ``run_guarded`` (policy entry, level check, output cap, audit).
 
 Every path goes through ``check_path`` and is opened with
-``open_no_symlinks``. Files of ``pydyna.large_file_bytes`` (100 MiB) or more
+``open_no_symlinks``. Files of ``files.large_file_bytes`` (100 MiB) or more
 are not read here; the large-model tools of step 6 read them by keyword.
 Ported and tightened from mChampion ``tools/typed_tools.py``.
 """
@@ -123,7 +123,7 @@ def read_text_file(context: ChampionContext, path: str, max_chars: int | None = 
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
             raise ToolError(f"{file} is not a regular file")
-        large = context.config.get("pydyna.large_file_bytes")
+        large = context.config.get("files.large_file_bytes")
         if info.st_size >= large:
             raise ToolError(f"{file} is {human_size(info.st_size)}; files of {human_size(large)} or more "
                             "are read with the large-model tools (not available yet), not filesystem_read; "
@@ -131,7 +131,7 @@ def read_text_file(context: ChampionContext, path: str, max_chars: int | None = 
         head = stream.read(max(65536, max_chars * 4) + 1)
         if start_line is not None:
             data, last, total = _lines_from(stream, start_line, max_chars)
-        digest = file_sha256(stream.fileno(), time.monotonic() + context.config.get("pydyna.model_timeout_seconds"))
+        digest = file_sha256(stream.fileno(), time.monotonic() + context.config.get("files.model_timeout_seconds"))
     head_text = head.decode("utf-8", errors="replace")
     text = head_text if start_line is None else data.decode("utf-8", errors="replace")
     for sample in (head_text, text):
@@ -155,7 +155,7 @@ def read_text_file(context: ChampionContext, path: str, max_chars: int | None = 
 
 
 def hash_file(context: ChampionContext, path: str) -> str:
-    """SHA-256 of a file of any size up to pydyna.max_model_bytes (streaming, time limit)."""
+    """SHA-256 of a file of any size up to files.max_model_bytes (streaming, time limit)."""
     file = check_path(context.level, context.working_directory, path, "read")
     try:
         fd = open_no_symlinks(file, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
@@ -167,10 +167,10 @@ def hash_file(context: ChampionContext, path: str) -> str:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise ToolError(f"{file} is not a regular file")
-        cap = context.config.get("pydyna.max_model_bytes")
+        cap = context.config.get("files.max_model_bytes")
         if info.st_size > cap:
             raise ToolError(f"{file} is {human_size(info.st_size)}, above the safety cap of {human_size(cap)}")
-        digest = file_sha256(fd, time.monotonic() + context.config.get("pydyna.model_timeout_seconds"))
+        digest = file_sha256(fd, time.monotonic() + context.config.get("files.model_timeout_seconds"))
     finally:
         os.close(fd)
     return f"{file} ({human_size(info.st_size)}): SHA-256 {digest}"

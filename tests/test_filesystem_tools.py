@@ -97,7 +97,7 @@ def test_non_keyword_key_file_blocked(setup):
 
 def test_large_files_refused(setup):
     config, work, _ = setup
-    config.data["pydyna"]["large_file_bytes"] = 100
+    config.data["files"]["large_file_bytes"] = 100
     (work / "big.k").write_text("*KEYWORD\n" + "$" * 200)
     with pytest.raises(ToolError, match="large-model tools"):
         read_text_file(ctx(config), "big.k")

@@ -9,7 +9,7 @@ Both walk with ``walk.py`` (no links followed, blocked entries skipped and
 counted, about 10 s per call) after ``check_path`` on the start folder, so
 they follow the access level exactly like the step 2 file tools.
 
-``filesystem_grep`` skips binary files, files of ``pydyna.large_file_bytes``
+``filesystem_grep`` skips binary files, files of ``files.large_file_bytes``
 (100 MiB) or more, files with a private key, and ``.key`` files that are not
 LS-DYNA keyword files. Plain text is the default because LS-DYNA keywords such
 as ``*MAT_024`` contain ``*``, which a regular expression would misread.
@@ -232,7 +232,7 @@ def grep_files(context: ChampionContext, text: str, path: str = ".", patterns: l
     matcher = _Matcher(text, regex, ignore_case)
     max_matches = check_limit(max_matches, "max_matches", MAX_MATCHES)
     depth = check_depth(max_depth) if recursive else 1
-    large = context.config.get("pydyna.large_file_bytes")
+    large = context.config.get("files.large_file_bytes")
     deadline = time.monotonic() + WALK_SECONDS
     stats = WalkStats()
     skipped = {"binary": 0, "large": 0, "blocked": 0}

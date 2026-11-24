@@ -1,8 +1,8 @@
 """Champion command line.
 
-``champion --version``, ``champion doctor`` (step 0) and ``champion chat``
-(steps 1-2a). Later steps add the terminal UI (fast demo step 6) and
-``champion kb`` (L5, after the demo).
+``champion --version``, ``champion doctor`` (step 0), ``champion chat``
+(steps 1-2a) and ``champion kb status`` / ``champion kb build`` (M1: the
+knowledge bases the agents declare). The terminal UI is track T9.
 """
 
 from __future__ import annotations
@@ -36,6 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
                       help="also allow editing FOLDER in this chat (repeatable)")
     chat.add_argument("--outside", choices=("none", "read", "edit"),
                       help="right for everything else outside the working folder and the listed folders")
+
+    kb = commands.add_parser("kb", help="knowledge bases of the agents: status, build")
+    kb.add_argument("action", choices=("status", "build"))
+    kb.add_argument("--agent", help="only this agent (build: required)")
+    kb.add_argument("--collection", action="append", default=[],
+                    help="build only this collection (repeatable; default: every one the agent can build)")
+    kb.add_argument("--verify", action="store_true",
+                    help="status: also compare the source files with the SHA-256 in MANIFEST.json")
+    kb.add_argument("--replace", action="store_true", help="build: build an existing collection again")
+    kb.add_argument("--allow-foreign", action="store_true",
+                    help="build: write into a database without MANIFEST.json (not built by Champion)")
 
     access = commands.add_parser("access", help="show or change the saved per-folder access list")
     access.add_argument("action", choices=("list", "add", "remove", "outside", "working"))
@@ -78,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
         render(results)
         return 1 if any(r.status == FAIL for r in results) else 0
 
+    if args.command == "kb":
+        return run_kb(config, args)
+
     if args.command == "access":
         from champion.access_commands import cli_access
 
@@ -101,6 +115,38 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Cannot start: {exc}", file=sys.stderr)
             return 2
         return run_chat(runtime, args.question, plain=args.plain)
+    return 0
+
+
+def run_kb(config, args) -> int:
+    """``champion kb status|build`` (M1). Exit code 1 when a check fails or a build is refused."""
+    from champion.knowledge.root import KnowledgeError
+    from champion.knowledge.status import FAIL, knowledge_status, render_lines
+
+    if args.action == "status":
+        lines = knowledge_status(config, args.agent, verify=args.verify)
+        print(render_lines(lines))
+        return 1 if any(line.status == FAIL for line in lines) else 0
+
+    from champion.knowledge.builder import build_collection
+    from champion.knowledge.registry import knowledge_spec
+
+    if not args.agent:
+        print("champion kb build needs --agent NAME", file=sys.stderr)
+        return 2
+    try:
+        spec = knowledge_spec(args.agent)
+        names = args.collection or [c.name for c in spec.collections if c.documents is not None]
+        if not names:
+            raise KnowledgeError(f"{args.agent} declares no collection that can be built")
+        for name in names:
+            print(f"{args.agent}/{name}: building ...")
+            info = build_collection(config, args.agent, name, replace=args.replace, allow_foreign=args.allow_foreign,
+                                    progress=lambda done, total: print(f"  {done}/{total}", end="\r", flush=True))
+            print(f"\n{args.agent}/{name}: {info.count} entries, model {info.model} ({info.dimension}, {info.space})")
+    except KnowledgeError as exc:
+        print(f"ERROR {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

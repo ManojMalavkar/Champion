@@ -136,10 +136,10 @@ def test_edit_refusals_leave_the_file_unchanged(setup, monkeypatch):
         edit_file(ctx(config), "link.k", "*END", "x")
     with pytest.raises(PolicyDenied, match="own folder"):
         edit_file(ctx(config), ".champion/backups/x.json", "a", "b")
-    config.data["pydyna"]["max_model_bytes"] = 10
+    config.data["files"]["max_model_bytes"] = 10
     with pytest.raises(ToolError, match="safety cap"):
         edit_file(ctx(config), "main.k", "*END", "x")
-    config.data["pydyna"]["max_model_bytes"] = 8 * 1024 ** 3
+    config.data["files"]["max_model_bytes"] = 8 * 1024 ** 3
 
     class Tiny:
         f_bavail, f_frsize = 1, 1
@@ -147,7 +147,7 @@ def test_edit_refusals_leave_the_file_unchanged(setup, monkeypatch):
     with pytest.raises(ToolError, match="not enough free disk space"):
         edit_file(ctx(config), "main.k", "*END", "x")
     monkeypatch.undo()
-    config.data["pydyna"]["model_timeout_seconds"] = 0
+    config.data["files"]["model_timeout_seconds"] = 0
     with pytest.raises(ToolError, match="time limit"):
         edit_file(ctx(config), "main.k", "*END", "x")
     assert (work / "main.k").read_text() == MODEL and leftovers(work) == []

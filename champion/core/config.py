@@ -11,7 +11,7 @@ How the final configuration is built:
 Relative paths:
 * ``execution.working_directory`` is relative to the directory Champion is
   started from (the folder you work in).
-* All other paths (storage, pydyna, kb) are relative to the project root: the
+* All other paths (storage, kb, agent sections) are relative to the project root: the
   parent of the ``config/`` folder that holds the file, or the file's own
   folder if it is not inside a ``config/`` folder.
 
@@ -21,6 +21,12 @@ loads the specialists, then adds each registered section's defaults, merges
 the file, resolves its path keys and runs its validator, exactly like a
 built-in section. The example values of such a section live in
 ``config/examples/<section>.yaml`` (checked by ``example_fragment_problems``).
+
+Step M1: the file limits used by the core tools moved from ``pydyna`` to ``files``
+(``large_file_bytes``, ``max_model_bytes``, ``model_timeout_seconds``); the old
+``pydyna.<key>`` names still work with a warning. The rest of the ``pydyna`` section
+belongs to the PyDyna package (its own ``config_section``), like every agent's
+``<section>.knowledge_root``.
 
 The API key is never stored in the config. ``get_openai_api_key`` reads the
 configured environment variable from the environment or a ``.env`` file in the
@@ -103,20 +109,21 @@ DEFAULTS: dict[str, Any] = {
     # tests: ["/path/to/venv/bin/python", "-m", "pytest", "-q"]
     "coder": {"checks": {}, "check_env": ["LD_LIBRARY_PATH"]},
     "storage": {"audit_db": "champion.db", "log_dir": "logs"},
-    "agents": {"pydyna": {"enabled": True}, "linux_coder": {"enabled": True}, "coder": {"enabled": True}},
-    "pydyna": {
-        "database_path": None,  # existing Chroma vector_db folder
-        "keyword_reference_path": None,  # keyword_reference.jsonl
-        "python_path": None,  # Python interpreter with ansys-dyna-core
-        "large_file_bytes": 100 * MiB,
-        "max_model_bytes": 8 * GiB,
-        "max_include_files": 1024,
-        "max_include_depth": 64,
-        "model_timeout_seconds": 120,
-        "max_memory_bytes": 4 * GiB,
+    "agents": {"linux_coder": {"enabled": True}, "coder": {"enabled": True}},
+    "files": {  # M1: limits of the core file tools (were pydyna.*)
+        "large_file_bytes": 100 * MiB,  # files this size or larger: no whole read, grep skips them
+        "max_model_bytes": 8 * GiB,  # larger files are refused (edit, hash)
+        "model_timeout_seconds": 120,  # time limit of one pass over a large file
+    },
+    "knowledge": {  # M1: knowledge layer (champion/knowledge/), roots in <section>.knowledge_root
+        "offline": True,  # embedding model from the local cache only (HF_HUB_OFFLINE=1)
+        "verify_hash": True,  # SHA-256 of the database files before and after opening
+        "max_results": 20,  # most results one search or lookup returns
+        "fetch_factor": 5,  # with a track filter: fetch this many times more, then filter
+        "max_hit_chars": 1500,  # text of one result is cut to this
     },
     "kb": {
-        "sources": {"pydyna": None, "pydpf_post": None},
+        "sources": {},
         "max_source_file_bytes": 2 * MiB,
     },
     "mcp": {"enabled": False, "servers": {}},
@@ -147,11 +154,11 @@ SECRET_NAME = r"TOKEN|SECRET|PASSW|KEY|CREDENTIAL|AUTH|COOKIE|SESSION"
 ROOT_PATH_KEYS = (
     "storage.audit_db",
     "storage.log_dir",
-    "pydyna.database_path",
-    "pydyna.keyword_reference_path",
-    "pydyna.python_path",
     "access.file",
 )
+
+# M1: these keys moved from pydyna to files; old names are taken over with a warning.
+MOVED_FILE_KEYS = ("large_file_bytes", "max_model_bytes", "model_timeout_seconds")
 
 
 class ConfigError(ValueError):
@@ -292,6 +299,7 @@ def load_config(path: str | os.PathLike | None = None, *,
             raise ConfigError(f"Invalid YAML in {file}: {exc}") from exc
         if not isinstance(raw, dict):
             raise ConfigError(f"{file} must contain a mapping at the top level")
+        _move_file_keys(raw, warnings)
         _merge(data, raw, "", warnings)
 
     root = project_root() if file is None else _base_dir(file)
@@ -318,6 +326,28 @@ def _validate_sections(data: dict, sections: list[ConfigSection]) -> list[str]:
             problems = [f"validator failed ({type(exc).__name__})"]
         errors += [f"{section.name}: {problem}" for problem in problems]
     return errors
+
+
+def _move_file_keys(raw: dict, warnings: list[str]) -> None:
+    """M1: ``pydyna.large_file_bytes`` and the like are now ``files.*`` (old names still work)."""
+    old = raw.get("pydyna")
+    if not isinstance(old, dict):
+        return
+    new = raw.get("files")
+    if new is None:
+        new = raw["files"] = {}
+    if not isinstance(new, dict):
+        return  # reported by _merge
+    for key in MOVED_FILE_KEYS:
+        if key in old:
+            value = old.pop(key)
+            if key in new:
+                warnings.append(f"'pydyna.{key}' is ignored: 'files.{key}' is set (remove the old key)")
+            else:
+                new[key] = value
+                warnings.append(f"'pydyna.{key}' is now 'files.{key}' (still used; please rename it)")
+    if not old:
+        raw.pop("pydyna")
 
 
 def _base_dir(file: Path) -> Path:
@@ -523,13 +553,17 @@ def validate(data: dict) -> list[str]:
     if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction <= 1:
         errors.append(f"edit.approval_max_changed_fraction must be a number above 0 and at most 1 (got {fraction!r})")
 
-    for key in ("large_file_bytes", "max_model_bytes", "max_include_files", "max_include_depth",
-                "model_timeout_seconds", "max_memory_bytes"):
-        positive_int(f"pydyna.{key}")
-    pyd = data["pydyna"]
-    if _is_int(pyd["large_file_bytes"]) and _is_int(pyd["max_model_bytes"]) \
-            and pyd["large_file_bytes"] > pyd["max_model_bytes"]:
-        errors.append("pydyna.large_file_bytes cannot be larger than pydyna.max_model_bytes")
+    for key in MOVED_FILE_KEYS:
+        positive_int(f"files.{key}")
+    files = data["files"]
+    if _is_int(files["large_file_bytes"]) and _is_int(files["max_model_bytes"]) \
+            and files["large_file_bytes"] > files["max_model_bytes"]:
+        errors.append("files.large_file_bytes cannot be larger than files.max_model_bytes")
+    boolean("knowledge.offline")
+    boolean("knowledge.verify_hash")
+    positive_int("knowledge.max_results", 100)
+    positive_int("knowledge.fetch_factor", 20)
+    positive_int("knowledge.max_hit_chars", 20000)
 
     positive_int("kb.max_source_file_bytes")
     boolean("mcp.enabled")

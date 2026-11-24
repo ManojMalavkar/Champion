@@ -30,8 +30,8 @@ REQUIRED_PACKAGES = [
     ("textual", "textual", "terminal UI (step 5)"),
 ]
 OPTIONAL_PACKAGES = [
-    ("chromadb", "chromadb", "PyDyna knowledge base (step 3, extra 'pydyna')"),
-    ("sentence_transformers", "sentence-transformers", "embeddings (step 3, extra 'pydyna')"),
+    ("chromadb", "chromadb", "knowledge search (M1, extra 'knowledge')"),
+    ("sentence_transformers", "sentence-transformers", "embeddings (M1, extra 'knowledge')"),
 ]
 
 
@@ -137,31 +137,15 @@ def check_paths(config: Config) -> list[CheckResult]:
         else:
             results.append(CheckResult(label, FAIL, f"{target}: cannot write in {parent}"))
 
-    db = config.get("pydyna.database_path")
-    if not db:
-        results.append(CheckResult("PyDyna vector DB", WARN, "pydyna.database_path not set (needed from step 3)"))
-    elif not (Path(db) / "chroma.sqlite3").is_file():
-        results.append(CheckResult("PyDyna vector DB", WARN, f"no chroma.sqlite3 in {db}"))
-    else:
-        results.append(CheckResult("PyDyna vector DB", OK, db))
-
-    ref = config.get("pydyna.keyword_reference_path")
-    if not ref:
-        results.append(CheckResult("Keyword reference", WARN, "pydyna.keyword_reference_path not set (needed from step 3)"))
-    elif not Path(ref).is_file():
-        results.append(CheckResult("Keyword reference", WARN, f"file not found: {ref}"))
-    else:
-        results.append(CheckResult("Keyword reference", OK, ref))
-
-    python = config.get("pydyna.python_path")
-    if not python:
-        results.append(CheckResult("PyDyna Python", WARN, "pydyna.python_path not set (needed from step 8)"))
-    elif not (Path(python).is_file() and os.access(python, os.X_OK)):
-        results.append(CheckResult("PyDyna Python", WARN, f"not an executable file: {python}"))
-    else:
-        results.append(CheckResult("PyDyna Python", OK, python))
     results.append(check_memory(config))
     return results
+
+
+def check_knowledge(config: Config) -> list[CheckResult]:
+    """M1: the knowledge bases the agents declare (same checks as ``champion kb status``)."""
+    from champion.knowledge.status import knowledge_status
+
+    return [CheckResult(line.name, line.status, line.detail) for line in knowledge_status(config)]
 
 
 def check_memory(config: Config) -> CheckResult:
@@ -235,7 +219,7 @@ def run_checks(config: Config, *, online: bool = False,
                env: Mapping[str, str] | None = None) -> list[CheckResult]:
     results = [check_python()]
     for check in (lambda: check_config(config), lambda: check_api_key(config, env),
-                  check_packages, lambda: check_paths(config)):
+                  check_packages, lambda: check_paths(config), lambda: check_knowledge(config)):
         try:
             results.extend(check())
         except Exception as exc:  # a broken check must not hide the others
