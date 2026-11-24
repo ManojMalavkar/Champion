@@ -55,14 +55,13 @@ In the Champion worktree with the venv active (`source ~/.ansa_meta_copilot/.ven
    EOF
    ```
 
-   If it shows `l2` (or no `hnsw:space`, which means `l2`), add `--space l2` in step 4; if `cosine`, keep the default.
+   On Linux (24 Nov 2026) all three collections have no `hnsw:space` and config `{}`: Chroma's default `l2`. `build_index.py` uses `l2` by default since then; give `--space cosine` only if a database shows `cosine`.
 
 4. Build the collection into its own folder (CPU, a few minutes for 13,014 chunks):
 
    ```bash
-   echo "knowledge/pydyna/vector_db_dpf_core/" >> .git/info/exclude
    HF_HUB_OFFLINE=1 python -m champion.specialists.pydyna.build_index --collection pydpf_core \
-       --kb knowledge/pydyna/knowledge-base --db knowledge/pydyna/vector_db_dpf_core   # [--space l2]
+       --kb knowledge/pydyna/knowledge-base --db knowledge/pydyna/vector_db_dpf_core
    ```
 
    Expected last line: `pydpf_core: 13014 entries in knowledge/pydyna/vector_db_dpf_core`.
@@ -83,6 +82,8 @@ In the Champion worktree with the venv active (`source ~/.ansa_meta_copilot/.ven
    ```
 
    Expected: the first query finds `operators/result/part_internal_energy.py` or an LS-DYNA example, the third workflow docs or examples. Paste the output back.
+
+`knowledge/pydyna/.gitignore` keeps both databases and the knowledge JSONL out of Git (in a worktree `.git` is a file, so `.git/info/exclude` cannot be used there). Check: `git status --short knowledge/` prints nothing.
 
 ## Not done here
 * The old `vector_db` is not written; replacing the old PyDyna and PyDPF-Post files with regenerated ones is the user's decision.

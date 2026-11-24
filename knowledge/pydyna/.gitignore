@@ -1,0 +1,7 @@
+# PyDyna track (T1): local knowledge data, never in Git (user, 24 Nov 2026)
+# search databases (built on the machine, 1.5 GB and more)
+vector_db/
+vector_db_dpf_core/
+# knowledge JSONL (copied or generated with source_data.py) and their manifests
+knowledge-base/*.jsonl
+knowledge-base/MANIFEST-*.json

@@ -217,10 +217,11 @@ def test_build_collection_adds_every_record_in_batches_and_never_replaces_silent
                                 progress=lambda done, total: seen.append(done))
     assert count == len(documents) and seen[-1] == len(documents) and len(seen) == -(-len(documents) // 2)
     built = client.collections["pydpf_core"]
-    assert built.metadata == {"hnsw:space": "cosine"} and [r[0] for r in built.rows] == [d.id for d in documents]
+    assert built.metadata == {"hnsw:space": "l2"} and [r[0] for r in built.rows] == [d.id for d in documents]
     with pytest.raises(bi.IndexBuildError, match="--replace"):
         bi.build_collection(client, None, "pydpf_core", documents)
-    bi.build_collection(client, None, "pydpf_core", documents, replace=True, space="l2")
+    bi.build_collection(client, None, "pydpf_core", documents, replace=True, space="cosine")
+    assert client.collections["pydpf_core"].metadata == {"hnsw:space": "cosine"}
     assert client.deleted == ["pydpf_core"] and "pydpf_post" in client.collections  # others untouched
     with pytest.raises(bi.IndexBuildError, match="expected"):
         bi.build_collection(FakeClient(lose=1), None, "pydpf_core", documents)
@@ -234,7 +235,7 @@ def test_manifest_and_main_database_guard(tmp_path):
     sd.generate(CORE, tmp_path / "kb", ref="v0.16.3", source=make_repo(tmp_path / "repo"))
     db = tmp_path / "vector_db_dpf_core"
     db.mkdir()
-    manifest = bi.write_manifest(db, "pydpf_core", 7, "BAAI/bge-small-en-v1.5", 384, "cosine",
+    manifest = bi.write_manifest(db, "pydpf_core", 7, "BAAI/bge-small-en-v1.5", 384, "l2",
                                  rec.dpf_core_files(tmp_path / "kb"))
     entry = manifest["collections"]["pydpf_core"]
     data = (tmp_path / "kb" / "pydpf_core_source.jsonl").read_bytes()

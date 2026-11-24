@@ -15,8 +15,9 @@ agent is not written::
   ``--allow-main-db``.
 * ``MANIFEST.json`` in the database folder: per collection the count, model, vector length,
   distance and the SHA-256 of the JSONL files it was built from.
-* Distance ``cosine`` by default; ``--space`` to match another database (the doc of T1.3b
-  shows how to read the space of the old collections).
+* Distance ``l2`` by default: the collections of the old agent's database have no distance set,
+  so they use Chroma's default ``l2`` (read on Linux, 24 Nov 2026); the same distance keeps
+  the scores of all PyDyna searches comparable. ``--space`` gives another.
 
 Needs chromadb and sentence-transformers (optional group ``pydyna``); the model comes from the
 local Hugging Face cache (set ``HF_HUB_OFFLINE=1`` to never download).
@@ -36,7 +37,7 @@ from champion.specialists.pydyna import records as rec
 from champion.specialists.pydyna.search import EMBED_MODEL
 
 BATCH = 256
-SPACES = ("cosine", "l2", "ip")
+SPACES = ("l2", "cosine", "ip")
 
 
 class IndexBuildError(Exception):
@@ -69,7 +70,7 @@ def _exists(client: Any, name: str) -> bool:
 
 
 def build_collection(client: Any, embedding: Any, name: str, documents: list, replace: bool = False,
-                     space: str = "cosine", batch: int = BATCH, progress: Callable[[int, int], None] | None = None) -> int:
+                     space: str = "l2", batch: int = BATCH, progress: Callable[[int, int], None] | None = None) -> int:
     """Create collection ``name`` with ``documents`` (``records.Document``); returns its count."""
     if space not in SPACES:
         raise IndexBuildError(f"space must be one of {', '.join(SPACES)}")
@@ -127,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--kb", type=Path, default=Path("knowledge/pydyna/knowledge-base"))
     parser.add_argument("--db", type=Path, required=True, help="database folder (created if missing)")
     parser.add_argument("--replace", action="store_true", help="build an existing collection again")
-    parser.add_argument("--space", choices=SPACES, default="cosine")
+    parser.add_argument("--space", choices=SPACES, default="l2")
     parser.add_argument("--model", default=EMBED_MODEL)
     parser.add_argument("--allow-main-db", action="store_true")
     args = parser.parse_args(argv)
