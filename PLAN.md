@@ -1797,7 +1797,7 @@ Format: `CR-n (track, date): what - why - status`.
 * T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
 * T5 Skills: branch created; can start. Plan: `docs/tracks/skills.md`
 * T6 Full vehicle model: branch created; can start. Plan: `docs/tracks/vehicle-model.md`
-* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); CR-1 and CR-2 (M6 memory hook) done; M1 knowledge layer built (24 Nov 2026, 377 tests; walkthrough `docs/steps/m1-knowledge-layer.md`), committed on `main` ("Step M1"), not pushed; next M2
+* T7 Core: M0 built (20 Nov 2026, 269 tests; walkthrough `docs/steps/m0-parallel-enablers.md`); live check by the user pending (chat unchanged); CR-1 and CR-2 (M6 memory hook) done; M1 knowledge layer built (24 Nov 2026, 377 tests; walkthrough `docs/steps/m1-knowledge-layer.md`), pushed on `main` as `6e369af` ("Step M1"); next M2
 * T8 Memory: T8.1-T8.4 (L0-L3 library, 50 tests) built on `track/memory` (`a35412d`) and now also on `main` through CR-2; M6 hook done (CR-2); T8.5+ wait for decisions D1-D5. Plan: `docs/tracks/memory.md`
 * T9 TUI: branch created; T9.1 can start. Plan: `docs/tracks/tui.md`
 
@@ -1810,7 +1810,7 @@ Format: `CR-n (track, date): what - why - status`.
 - [x] Track branches `track/pydyna`, `track/hpc`, `track/ansa-meta`, `track/primer`, `track/skills`, `track/vehicle-model` created from `main` after the M0 commit.
 - [ ] Local check (user, Linux machine): `pytest -q` 269 passed; `champion chat --level 1.2` start line still `coder_agent, linux_coder_agent`; one question and one edit work as before.
 
-#### M1 status (built 24 Nov 2026, commit "Step M1" on `main`, not pushed)
+#### M1 status (built and pushed 24 Nov 2026, `6e369af` "Step M1" on `main`)
 Decisions (user, 24 Nov 2026): (1) Chroma opened in place read-only, stop if any database file changes; (2) builder is a library function plus `champion kb build --agent X`; (3) option 3b: core file limits move to a new `files` section, the rest of `pydyna` leaves core and is declared by the PyDyna package; (4) `champion kb status` is part of M1.
 - [x] M1.1 `champion/knowledge/root.py`: root `<section>.knowledge_root`, default `knowledge/<agent>`; inside the project folder only, no symbolic links; database folders `vector_db` or `vector_db_<name>`.
 - [x] M1.2 `manifest.py`: `MANIFEST.json` per database folder (count, model, dimension, space, source files with SHA-256); also reads the T1.3b track format.
