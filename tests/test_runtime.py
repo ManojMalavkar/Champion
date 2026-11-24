@@ -149,5 +149,5 @@ def test_session_info_content(tmp_path):
     assert info["access_level_enforced"] is True
     assert "working folder read, everything else read" in info["access"]
     assert info["working_directory"] == str(tmp_path.resolve())
-    assert info["enabled_specialists"] == ["coder", "linux_coder", "pydyna"]
+    assert info["enabled_specialists"] == ["coder", "linux_coder"]
     assert SECRET not in json.dumps(info)

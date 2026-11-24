@@ -85,17 +85,16 @@ def test_packages_required_fail_optional_warn():
 
 
 def test_paths(tmp_path):
-    db = tmp_path / "vector_db"
-    db.mkdir()
-    (db / "chroma.sqlite3").write_text("")
-    config = make_config(tmp_path, f"llm:\n  model_id: m\npydyna:\n  database_path: {db}\n"
-                                   f"  keyword_reference_path: missing.jsonl\n")
+    config = make_config(tmp_path, "llm:\n  model_id: m\n")
     results = doctor.check_paths(config)
     assert by_name(results, "Working directory")[0].status == OK
     assert by_name(results, "Audit database")[0].status == OK
-    assert by_name(results, "PyDyna vector DB")[0].status == OK
-    assert by_name(results, "Keyword reference")[0].status == WARN
-    assert by_name(results, "PyDyna Python")[0].status == WARN
+    assert not by_name(results, "PyDyna vector DB")  # M1: knowledge checks come from champion.knowledge
+
+
+def test_knowledge_line_without_declared_bases(tmp_path):
+    config = make_config(tmp_path, "llm:\n  model_id: m\n")
+    assert by_name(doctor.check_knowledge(config), "Knowledge")[0].status == OK
 
 
 def test_missing_working_directory_fails(tmp_path):

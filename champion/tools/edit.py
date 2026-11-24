@@ -6,7 +6,7 @@ approval; every change goes into the session change list and can be undone
 edits or moves.
 
 ``file_edit`` changes text in a file, streaming (``text_patch``): files of any
-size up to ``pydyna.max_model_bytes`` (8 GiB), memory about one chunk. Step
+size up to ``files.max_model_bytes`` (8 GiB), memory about one chunk. Step
 4d: a list of edits (``replace``, ``delete``, ``insert_before``,
 ``insert_after``, ``replace_lines``), each matched against the file as it is
 before the call; all are checked first, overlapping edits are refused, and
@@ -369,7 +369,7 @@ def _open_existing(context: ChampionContext, target: Path, kind: str, cap: int) 
         if not stat.S_ISREG(before.st_mode):
             raise ToolError(f"{target} is not a regular file")
         if before.st_size > cap:
-            what = "(pydyna.max_model_bytes)" if kind == "edit" else "(edit.max_write_bytes); use file_edit"
+            what = "(files.max_model_bytes)" if kind == "edit" else "(edit.max_write_bytes); use file_edit"
             raise ToolError(f"{target} is {human_size(before.st_size)}, above the safety cap of {human_size(cap)} "
                             f"{what}; nothing changed")
         plan.before = before
@@ -385,8 +385,8 @@ def prepare_edit(context: ChampionContext, path: str, edits: list,
     target = check_path(context.level, context.working_directory, path, "edit")
     ops = _parse_edits(edits)
     check_hash_format(expected_sha256)
-    seconds = context.config.get("pydyna.model_timeout_seconds")
-    plan = _open_existing(context, target, "edit", context.config.get("pydyna.max_model_bytes"))
+    seconds = context.config.get("files.model_timeout_seconds")
+    plan = _open_existing(context, target, "edit", context.config.get("files.max_model_bytes"))
     try:
         fmt = sniff(plan.fd)
         _verify_hash(plan.fd, target, expected_sha256, seconds)
@@ -481,7 +481,7 @@ def prepare_write(context: ChampionContext, path: str, content: str, expected_sh
         raise ToolError("file_write needs expected_sha256 (from filesystem_read or file_hash): it replaces the "
                         "whole file, so it must be the version you read; nothing changed")
     check_hash_format(expected_sha256)
-    seconds = context.config.get("pydyna.model_timeout_seconds")
+    seconds = context.config.get("files.model_timeout_seconds")
     plan = _open_existing(context, target, "write", context.config.get("edit.max_write_bytes"))
     try:
         fmt = sniff(plan.fd)
@@ -605,7 +605,7 @@ def _skipped_note(skipped: list[int]) -> str:
 
 def _apply_one(context: ChampionContext, plan: FilePlan, tool: str, agent: str) -> tuple[int, str]:
     """Ask if needed, stage, commit and record one file change."""
-    seconds = context.config.get("pydyna.model_timeout_seconds")
+    seconds = context.config.get("files.model_timeout_seconds")
     try:
         if plan.risk:
             ask(context, approval_request(context, tool, [plan], plan.risk))
@@ -666,7 +666,7 @@ def restore_hunks(context: ChampionContext, target: Path, hunks: list[dict], siz
                   *, apply: bool = True) -> int:
     """Apply the reverse of ``hunks`` (forward blocks, offsets before the change) if the file
     is exactly as the change left it; ``apply=False`` only checks. Returns the size."""
-    seconds = context.config.get("pydyna.model_timeout_seconds")
+    seconds = context.config.get("files.model_timeout_seconds")
     dir_fd, fd = _open_target(target)
     try:
         before = os.fstat(fd)
@@ -695,7 +695,7 @@ def undo_patch(context: ChampionContext, record_file: str, *, apply: bool = True
 def remove_created(context: ChampionContext, path: Path | str, sha256: str, *, apply: bool = True) -> None:
     """Delete a file Champion created, only if it still has the created content."""
     target = check_path(context.level, context.working_directory, str(path), "edit")
-    seconds = context.config.get("pydyna.model_timeout_seconds")
+    seconds = context.config.get("files.model_timeout_seconds")
     dir_fd, fd = _open_target(target)
     try:
         info = os.fstat(fd)

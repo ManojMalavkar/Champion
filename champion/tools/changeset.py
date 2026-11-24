@@ -136,7 +136,7 @@ def apply_change_set(context: ChampionContext, title: str, files: list, *, dry_r
             reasons.insert(0, f"changes {len(active)} files (more than edit.approval_max_files = {limit})")
         if reasons:
             ask(context, _edit.approval_request(context, "change_set_apply", active, "; ".join(reasons), title))
-        deadline = time.monotonic() + context.config.get("pydyna.model_timeout_seconds")
+        deadline = time.monotonic() + context.config.get("files.model_timeout_seconds")
         for plan in active:
             _edit.stage_plan(context, plan, deadline)
         for plan in active:

@@ -175,7 +175,7 @@ def test_grep_options(tree):
 
 def test_grep_skips_large_files(tree):
     config, _, _ = tree
-    config.data["pydyna"]["large_file_bytes"] = 1024 * 1024
+    config.data["files"]["large_file_bytes"] = 1024 * 1024
     out = grep_files(ctx(config), "*KEYWORD", path="runs")
     assert "big.k" not in out and "1 file(s) of 1.0 MiB or more not searched" in out
 

@@ -54,7 +54,8 @@ def test_defaults_used_when_no_file(tmp_path, monkeypatch):
     config = load_config(env={}, cwd=tmp_path)
     assert config.path is None
     assert config.get("llm.model_id") == cfg.PLACEHOLDER_MODEL
-    assert config.get("pydyna.large_file_bytes") == 100 * 1024 * 1024
+    assert config.get("files.large_file_bytes") == 100 * 1024 * 1024
+    assert config.get("pydyna") is None  # M1: the PyDyna package declares its own section
     assert config.get("storage.audit_db") == str(tmp_path / "champion.db")
 
 
@@ -68,12 +69,12 @@ def test_file_overrides_only_given_keys(tmp_path):
 def test_relative_paths(tmp_path):
     work = tmp_path / "work"
     work.mkdir()
-    config = load_config(write_config(tmp_path, "pydyna:\n  database_path: kb/vector_db\n"),
+    config = load_config(write_config(tmp_path, "storage:\n  audit_db: data/champion.db\n"),
                          env={}, cwd=work)
-    # storage / pydyna paths: relative to the project root (parent of config/)
+    # storage paths: relative to the project root (parent of config/)
     assert config.root == tmp_path.resolve()
-    assert config.get("pydyna.database_path") == str(tmp_path.resolve() / "kb" / "vector_db")
-    assert config.get("storage.audit_db") == str(tmp_path.resolve() / "champion.db")
+    assert config.get("storage.audit_db") == str(tmp_path.resolve() / "data" / "champion.db")
+    assert config.get("storage.log_dir") == str(tmp_path.resolve() / "logs")
     # working directory: relative to where Champion is started
     assert config.get("execution.working_directory") == str(work.resolve())
 
@@ -99,7 +100,7 @@ def test_open_sections_accept_new_names(tmp_path):
     config = load(tmp_path, "agents:\n  ansa_meta:\n    enabled: false\nkb:\n  sources:\n    ansa_api: src/ansa\n")
     assert config.warnings == []
     assert config.get("agents.ansa_meta.enabled") is False
-    assert config.get("agents.pydyna.enabled") is True
+    assert config.get("agents.coder.enabled") is True
     assert config.get("kb.sources.ansa_api") == str(tmp_path.resolve() / "src" / "ansa")
 
 
@@ -113,7 +114,9 @@ def test_level_is_normalised(tmp_path, value, expected):
     ("policy:\n  default_level: '3.1'\n", "policy.default_level"),
     ("policy:\n  custom:\n    read: working\n    write: outside\n", "cannot be wider"),
     ("policy:\n  custom:\n    read: everything\n", "policy.custom.read"),
-    ("pydyna:\n  large_file_bytes: 200\n  max_model_bytes: 100\n", "large_file_bytes cannot be larger"),
+    ("files:\n  large_file_bytes: 200\n  max_model_bytes: 100\n", "large_file_bytes cannot be larger"),
+    ("knowledge:\n  offline: 'no'\n", "knowledge.offline"),
+    ("knowledge:\n  max_results: 500\n", "knowledge.max_results"),
     ("orchestration:\n  max_steps: true\n", "orchestration.max_steps"),
     ("orchestration:\n  max_steps: 0\n", "orchestration.max_steps"),
     ("execution:\n  require_approval: 'yes'\n", "execution.require_approval"),

@@ -214,6 +214,12 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Evidence:** 269 tests (17 new in `tests/test_parallel_enablers.py`), all pass on Databricks serverless. A demo track package written into a temporary folder is found, brings its config section and runs orchestrator -> group -> member -> tool with the right tools at each level, tool lines and audit rows; a "no" inside the member ends the turn after 3 model calls. A broken track package is reported and Champion still starts. Breaking the group wiring or the section validation in a copy makes 3 of the new tests fail. Linux and Coder unchanged (all 252 earlier tests pass).
 * **Lessons:** for parallel work the cheapest moment to remove shared edit points is before the first branch; afterwards each one costs a merge per track.
 
+### Step M1 - Shared knowledge layer
+
+* **What:** three agents (PyDyna, ANSA/META, PRIMER) search Chroma databases. M1 puts the shared part in `champion/knowledge/`: where each agent's databases live (inside the project, no links), a `MANIFEST.json` per database (count, model, dimension, source-file hashes), a read-only store, an offline embedding loader, a search and lookup tool factory, a builder (`champion kb build`) and checks (`champion kb status`, `champion doctor`). The file limits that core tools used under `pydyna` moved to a new `files` section (old names still work with a warning), so core no longer names any agent.
+* **Evidence:** 377 tests (28 new), all pass on Databricks serverless. Every database file has the same SHA-256 after search and lookup; a file added while open stops the store. On a database built the old agent's way, M1 returns the same ids and distances as a direct Chroma query. The offline loader refuses an uncached model with the download command, and its vectors equal Chroma's own (difference 0.0).
+* **Lessons:** check the read-only claim on the real library before building on it: one probe (no file changes on query) decided the design.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -230,6 +236,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 4d.3-4d.7 | 244 | `FilePlan` pipeline, `file_create`, `file_write` in `tools/edit.py`; `tools/changeset.py`, `tools/checks.py`, `specialists/coder.py`; `file_hash` | Step 4d.3-4d.7 |
 | 4d.8 | 252 | `stop_after_decline` in `agents/orchestrator.py`; `ChampionContext.declined`; `protect_file` in `policy/sensitive.py`; `pending_terminal_input` in `chat.py`; `coder.check_env` | Step 4d.8 (`bc56a61`) |
 | M0 | 269 | Discovery in `specialists/registry.py`; `register_config_section`, `example_fragment_problems` in `core/config.py`; `members` in `specialists/base.py`; groups in `agents/orchestrator.py`; `tests/conftest.py`; `docs/tracks/` | Step M0 |
+| M1 | 377 | `knowledge/root.py`, `manifest.py`, `store.py`, `embedding.py`, `registry.py`, `search.py`, `tools.py`, `builder.py`, `status.py`; `files`/`knowledge` sections; `champion kb` | Step M1 |
 
 ## 8. Demo script (current state)
 
