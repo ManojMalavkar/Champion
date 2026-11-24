@@ -1,15 +1,20 @@
-"""PyDyna track (T1): group ``pydyna`` (tool ``pydyna_agent``) with three sub-agents.
+"""PyDyna track (T1): group ``pydyna`` (tool ``pydyna_agent``) with four sub-agents.
 
 * ``pydyna_keyword`` (PyDyna/Keyword): LS-DYNA keyword cards and fields, material and
   contact choice, parameter checks.
 * ``pydyna_code`` (PyDyna/Code): PyDyna (``ansys-dyna-core``) API for deck-building code.
 * ``pydyna_dpf_post`` (PyDyna/DPF-Post): PyDPF-Post for d3plot / binout results.
+* ``pydyna_dpf_core`` (PyDyna/DPF-Core): PyDPF-Core operators and workflows (user, 24 Nov 2026;
+  search collection ``pydpf_core`` in its own database folder, T1.3b).
 
 The tools are in ``tools.py`` (the old PyDyna_Agent tools; search through the
 track-local stub ``search.py`` until M1), the knowledge records in ``records.py``
 (T1.0), the exact API records of the installed ansys-dyna-core in ``api_catalog.py``
 (T1.2a, tool ``lookup_api``), the API check of a script in ``api_check.py`` (T1.2b, tool
-``check_pydyna_script``). Writing script files (T1.2) and running them (T1.4) come later.
+``check_pydyna_script``), the exact PyDPF records and DPF operators of the installed
+ansys-dpf-post and ansys-dpf-core in ``dpf_catalog.py`` (T1.3a, tools ``lookup_dpf_api``,
+``find_dpf_operators``, ``check_dpf_script``). Writing script files (T1.2) and running them
+(T1.4) come later.
 ``agents.pydyna.enabled: false`` switches the group off; ``agents.<member>.enabled``
 a sub-agent. Importing loads no database or model (that happens on the first search).
 
@@ -20,7 +25,7 @@ that expect only the Coder and Linux agents fail.
 from __future__ import annotations
 
 from champion.specialists.base import SpecialistSpec
-from champion.specialists.pydyna.tools import CODE_TOOLS, DPF_POST_TOOLS, KEYWORD_TOOLS
+from champion.specialists.pydyna.tools import CODE_TOOLS, DPF_CORE_TOOLS, DPF_POST_TOOLS, KEYWORD_TOOLS
 from champion.specialists.registry import register_specialist
 
 SHARED_RULES = """Rules:
@@ -85,15 +90,53 @@ CODE = SpecialistSpec(
 DPF_POST = SpecialistSpec(
     name="pydyna_dpf_post",
     title="DPF-Post",
-    description=("PyDPF-Post expert: Python post-processing of LS-DYNA results (d3plot, binout): energies, "
-                 "displacements, stresses, section forces, with example code. It does not run code yet."),
-    instructions=f"""You are PyDyna's DPF-Post sub-agent. You write Ansys PyDPF-Post Python.
-- search_pydpf_post for every class, method and import you use; prefer examples and source hits.
+    description=("PyDPF-Post expert: high-level Python post-processing of LS-DYNA results (d3plot) with "
+                 "simulations and data frames: displacements, stresses, energies, with example code, and "
+                 "checking a PyDPF-Post script (a .py file in the working folder or code text) against the "
+                 "installed ansys-dpf-post and ansys-dpf-core. It does not run code yet."),
+    instructions=f"""You are PyDyna's DPF-Post sub-agent. You write Ansys PyDPF-Post / PyDPF-Core Python.
+- find_dpf_operators (lsdyna=true for d3plot / binout) to find the DPF operator of a result; then
+  lookup_dpf_api on it for the exact input and output pins.
+- lookup_dpf_api for every class, method, function and operator you use: exact names, parameters
+  and the import line of the installed version. Never use a name lookup_dpf_api does not confirm.
+- search_pydpf_post to find how to do something (examples, docs); then confirm with lookup_dpf_api.
+- check_dpf_script (code=...) on every script before you give it; fix every error and check again.
+  To review a user's script, check_dpf_script (path=...) and report the issues with their lines.
+- If no operator or method exists for a result (for example a binout file the installed DPF cannot
+  read), say so; do not invent one.
 - Give the code in the answer, with the imports, and list the sources it is based on.
   You cannot open result files or run code yet; say so if asked.
 {SHARED_RULES}""",
     tools=DPF_POST_TOOLS,
-    routing_hints=("plot the internal energy from a d3plot", "read section forces from binout"),
+    routing_hints=("plot the displacement of a d3plot with PyDPF-Post", "stress data frame of the last step",
+                   "check my PyDPF-Post script post_energy.py"),
+)
+
+DPF_CORE = SpecialistSpec(
+    name="pydyna_dpf_core",
+    title="DPF-Core",
+    description=("PyDPF-Core expert: DPF operators and workflows on LS-DYNA results (d3plot, binout): part "
+                 "and global energies, contact and section forces, Model, DataSources, fields containers, "
+                 "operator chains, with example code, and checking a PyDPF-Core script (a .py file in the "
+                 "working folder or code text) against the installed ansys-dpf-core. It does not run code yet."),
+    instructions=f"""You are PyDyna's DPF-Core sub-agent. You write Ansys PyDPF-Core Python (operators, workflows).
+- find_dpf_operators (lsdyna=true for d3plot / binout) to find the operator of a result; then
+  lookup_dpf_api on it for the exact input and output pins and the usage line.
+- lookup_dpf_api for every class, method, function and operator you use (Model, DataSources,
+  FieldsContainer, Workflow ...): exact names, parameters and the import line of the installed
+  version. Never use a name lookup_dpf_api does not confirm.
+- search_pydpf_core to find how to do something (examples, docs); then confirm with lookup_dpf_api.
+- check_dpf_script (code=...) on every script before you give it; fix every error and check again.
+  To review a user's script, check_dpf_script (path=...) and report the issues with their lines.
+- If no operator exists for a result (or the installed DPF cannot read the file type), say so;
+  do not invent one.
+- Give the code in the answer, with the imports, and list the sources it is based on.
+  You cannot open result files or run code yet; say so if asked.
+{SHARED_RULES}""",
+    tools=DPF_CORE_TOOLS,
+    routing_hints=("read part internal energies from a binout with DPF operators",
+                   "which DPF operator gives the contact force of an LS-DYNA interface",
+                   "check my PyDPF-Core script read_binout.py"),
 )
 
 PYDYNA = register_specialist(SpecialistSpec(
@@ -101,16 +144,18 @@ PYDYNA = register_specialist(SpecialistSpec(
     title="PyDyna",
     description=("PyDyna and LS-DYNA knowledge specialist: LS-DYNA keyword cards and fields, material and "
                  "contact choice, checking card parameters, PyDyna (ansys-dyna-core) code for building decks, "
-                 "PyDPF-Post code for d3plot / binout results. Answers from its knowledge base with sources; "
-                 "it checks PyDyna scripts against the installed API without running them; it does not read "
+                 "PyDPF-Post and PyDPF-Core code for d3plot / binout results. Answers from its knowledge base with sources; "
+                 "it checks PyDyna and PyDPF scripts against the installed APIs without running them; it does not read "
                  "the user's model files or run scripts yet."),
-    instructions="""You are PyDyna. You lead three sub-agents and send each part of the task to the right one:
+    instructions="""You are PyDyna. You lead four sub-agents and send each part of the task to the right one:
 - keyword: LS-DYNA keyword cards, fields, material / contact / section choice, parameter checks.
 - code: PyDyna (ansys-dyna-core) Python for building or changing decks, and checking PyDyna scripts.
-- dpf_post: PyDPF-Post Python for d3plot / binout results.
+- dpf_post: PyDPF-Post Python (simulations, data frames) for d3plot results, and checking PyDPF-Post scripts.
+- dpf_core: PyDPF-Core Python (operators, workflows, Model, DataSources) for d3plot / binout results,
+  also when PyDPF-Post has no API for it (binout energies and forces), and checking PyDPF-Core scripts.
 Give a sub-agent the complete question. Combine their answers into one concise result for
 Champion, keep their sources, and never add facts they did not report.""",
-    members=(KEYWORD, CODE, DPF_POST),
+    members=(KEYWORD, CODE, DPF_POST, DPF_CORE),
     routing_hints=("which fields does *MAT_024 have", "which contact type for a crash box",
                    "write a PyDyna script for a shell part", "plot energies from d3plot with PyDPF-Post"),
 ))

@@ -5,11 +5,15 @@ Tool                       Sub-agent           Data
 =========================  ==================  ==================================
 lookup_api                 Keyword, Code       installed ansys-dyna-core (api_catalog.py)
 check_pydyna_script        Code                a script (file or text) + installed package (api_check.py)
+lookup_dpf_api             DPF-Post, DPF-Core  installed ansys-dpf-post + ansys-dpf-core (dpf_catalog.py)
+find_dpf_operators         DPF-Post, DPF-Core  DPF operators of the installed ansys-dpf-core
+check_dpf_script           DPF-Post, DPF-Core  a script (file or text) + installed DPF packages
 lookup_keyword             Keyword, Code       keyword JSONL (records.py, merged)
 validate_keyword_params    Keyword             keyword JSONL
 search_keyword             Keyword             ``lsdyna_keywords`` (+ category)
 search_pydyna_api          Code                ``pydyna_api``
 search_pydpf_post          DPF-Post            ``pydpf_post``
+search_pydpf_core          DPF-Core            ``pydpf_core`` in its own database folder
 =========================  ==================  ==================================
 
 ``get_material_model`` and ``get_contact_type`` of the old agent only put
@@ -17,7 +21,7 @@ search_pydpf_post          DPF-Post            ``pydpf_post``
 21 Nov 2026): here ``search_keyword`` has a real ``category`` filter instead
 (``material``, ``contact``, ...).
 
-``check_pydyna_script`` checks script text at every access level; given a path, it reads
+``check_pydyna_script`` and ``check_dpf_script`` check script text at every access level; given a path, it reads
 that one ``.py`` file only through the path policy with right ``read`` (``check_path``, as
 ``code_check``: blocked at a level without read, sensitive files and symbolic links
 refused). It never runs or imports the script. Every tool has a policy entry with right
@@ -28,9 +32,10 @@ run), never the user's files, and sends nothing out. Results are JSON text with 
 ``sources``, ``source_path`` and ``chunk_index`` for code chunks), the raw
 ``distance`` and the old ``score`` (1 - distance).
 
-Paths: ``pydyna.database_path`` (default ``<project>/knowledge/pydyna/vector_db``)
-and the folder of ``pydyna.keyword_reference_path`` (default
-``<project>/knowledge/pydyna/knowledge-base``).
+Paths: ``pydyna.database_path`` (default ``<project>/knowledge/pydyna/vector_db``),
+``pydyna.dpf_core_database_path`` (default: ``vector_db_dpf_core`` next to it; user, 24 Nov
+2026, built by ``build_index.py``) and the folder of ``pydyna.keyword_reference_path``
+(default ``<project>/knowledge/pydyna/knowledge-base``).
 """
 
 from __future__ import annotations
@@ -49,7 +54,7 @@ from champion.core.config import Config
 from champion.core.context import ChampionContext
 from champion.policy.scope import check_path, open_no_symlinks
 from champion.policy.tool_policy import ToolRule, register
-from champion.specialists.pydyna import api_catalog, api_check
+from champion.specialists.pydyna import api_catalog, api_check, dpf_catalog
 from champion.specialists.pydyna import records as rec
 from champion.specialists.pydyna.search import SearchBackend, SearchUnavailable, backend_for
 from champion.tools.guard import ToolError, run_guarded
@@ -66,11 +71,17 @@ for _rule in (
     # right none: code text needs no access; a path goes through check_path(..., "read")
     ToolRule("check_pydyna_script", "none",
              "Check a PyDyna script against the installed ansys-dyna-core API (nothing is run)"),
+    ToolRule("lookup_dpf_api", "none", "Exact PyDPF-Post / PyDPF-Core API or DPF operator record from the installed packages"),
+    ToolRule("find_dpf_operators", "none", "Find DPF operators of the installed ansys-dpf-core by words"),
+    # right none: code text needs no access; a path goes through check_path(..., "read")
+    ToolRule("check_dpf_script", "none",
+             "Check a PyDPF script against the installed ansys-dpf-post / ansys-dpf-core API (nothing is run)"),
     ToolRule("lookup_keyword", "none", "Full record of one LS-DYNA keyword from the PyDyna knowledge base"),
     ToolRule("validate_keyword_params", "none", "Check keyword card parameters against the PyDyna knowledge base"),
     ToolRule("search_keyword", "none", "Search LS-DYNA keywords in the PyDyna knowledge base"),
     ToolRule("search_pydyna_api", "none", "Search the PyDyna (ansys-dyna-core) API and source"),
     ToolRule("search_pydpf_post", "none", "Search the PyDPF-Post API, source and examples"),
+    ToolRule("search_pydpf_core", "none", "Search the PyDPF-Core API, operators, source and examples"),
 ):
     register(_rule)
 
@@ -80,6 +91,12 @@ for _rule in (
 def database_path(config: Config) -> Path:
     value = config.get("pydyna.database_path")
     return Path(value) if value else Path(config.root) / "knowledge" / "pydyna" / "vector_db"
+
+
+def dpf_core_database_path(config: Config) -> Path:
+    """The ``pydpf_core`` database: its own folder next to the main one (not the old agent's database)."""
+    value = config.get("pydyna.dpf_core_database_path")
+    return Path(value) if value else database_path(config).parent / "vector_db_dpf_core"
 
 
 def knowledge_base_path(config: Config) -> Path:
@@ -164,9 +181,8 @@ def _read_script(context: ChampionContext, path: str) -> tuple[str, str]:
         raise ToolError(f"{target} is not UTF-8 (byte {exc.start})") from None
 
 
-def script_check(context: ChampionContext, catalog: api_catalog.Catalog, path: str | None = None,
-                 code: str | None = None) -> str:
-    """JSON result of the PyDyna API check of one script, given as a file path or as text."""
+def script_check(context: ChampionContext, catalog, path: str | None = None, code: str | None = None) -> str:
+    """JSON result of the API check of one script (PyDyna or DPF catalog), given as a file path or as text."""
     if (path is None) == (code is None):
         raise ToolError("give either path (a .py file in the working folder) or code (the script text), not both")
     if code is not None:
@@ -183,6 +199,25 @@ def installed_catalog() -> api_catalog.Catalog:
         return api_catalog.catalog_for()
     except api_catalog.CatalogError as exc:
         raise ToolError(str(exc)) from None
+
+
+def installed_dpf_catalog() -> dpf_catalog.DpfCatalog:
+    try:
+        return dpf_catalog.dpf_catalog_for()
+    except api_catalog.CatalogError as exc:
+        raise ToolError(str(exc)) from None
+
+
+def dpf_operators(catalog: dpf_catalog.DpfCatalog, query: str, lsdyna: bool = False, category: str | None = None,
+                  n_results: int = 10) -> str:
+    if isinstance(n_results, bool) or not isinstance(n_results, int) or not 1 <= n_results <= dpf_catalog.MAX_OPERATORS:
+        raise ToolError(f"n_results must be a whole number from 1 to {dpf_catalog.MAX_OPERATORS}")
+    try:
+        hits = catalog.find_operators(query, lsdyna, category or None, n_results)
+    except api_catalog.CatalogError as exc:
+        raise ToolError(str(exc)) from None
+    return _json({"package": dpf_catalog.CORE_DISTRIBUTION, "version": catalog.core.version, "operators": hits,
+                  "note": "Exact word match on operator names and descriptions; lookup_dpf_api gives the pins."})
 
 
 def lookup(config: Config, keyword_name: str) -> str:
@@ -256,8 +291,16 @@ def search_dpf_post(config: Config, backend: SearchBackend, query: str, n_result
     return _code_search(backend, rec.DPF_POST_COLLECTION, query, n_results, rec.keep_code_path)
 
 
+def search_dpf_core(config: Config, backend: SearchBackend, query: str, n_results: int = 8) -> str:
+    return _code_search(backend, rec.DPF_CORE_COLLECTION, query, n_results, rec.keep_code_path)
+
+
 def _backend(context: ChampionContext) -> SearchBackend:
     return backend_for(database_path(context.config))
+
+
+def _dpf_core_backend(context: ChampionContext) -> SearchBackend:
+    return backend_for(dpf_core_database_path(context.config))
 
 
 # ---------------------------------------------------------------- tools
@@ -349,6 +392,21 @@ async def search_pydpf_post(ctx: RunContextWrapper[ChampionContext], query: str,
 
 
 @function_tool
+async def search_pydpf_core(ctx: RunContextWrapper[ChampionContext], query: str, n_results: int = 8) -> str:
+    """Search Ansys PyDPF-Core (DPF operators, workflows, Model, DataSources, fields containers,
+    d3plot / binout readers) source, docs and examples. Results name the source file and chunk.
+
+    Args:
+        query: What to do with DPF, for example "read part energies from a binout with operators".
+        n_results: Number of results (1-20, default 8).
+    """
+    arguments = {"query": query, "n_results": n_results}
+    return await run_guarded(ctx, "search_pydpf_core", arguments,
+                             lambda: search_dpf_core(ctx.context.config, _dpf_core_backend(ctx.context), query,
+                                                     n_results))
+
+
+@function_tool
 async def check_pydyna_script(ctx: RunContextWrapper[ChampionContext], path: str | None = None,
                               code: str | None = None) -> str:
     """Check a PyDyna (ansys-dyna-core) script against the API of the installed package; nothing is run.
@@ -366,6 +424,56 @@ async def check_pydyna_script(ctx: RunContextWrapper[ChampionContext], path: str
                              lambda: script_check(ctx.context, installed_catalog(), path, code))
 
 
+@function_tool
+async def lookup_dpf_api(ctx: RunContextWrapper[ChampionContext], name: str) -> str:
+    """Get the exact record of a PyDPF name from the installed ansys-dpf-post and ansys-dpf-core, with
+    version and source file: a DPF operator (input and output pins with types and documents, LS-DYNA or
+    not, usage line), a class (import line, methods, properties), a method, property or function
+    (parameters, required or not, defaults, return type, docstring). Unknown names come back with close names.
+
+    Args:
+        name: For example "part_internal_energy", "ops.result.global_kinetic_energy", "load_simulation", "Model", "DataSources.set_result_file_path" or "TransientMechanicalSimulation.displacement".
+    """
+    return await run_guarded(ctx, "lookup_dpf_api", {"name": name},
+                             lambda: api_record(installed_dpf_catalog(), name))
+
+
+@function_tool
+async def find_dpf_operators(ctx: RunContextWrapper[ChampionContext], query: str, lsdyna: bool = False,
+                             category: str | None = None, n_results: int = 10) -> str:
+    """Find DPF operators of the installed ansys-dpf-core whose name or description has the words of
+    the query (exact words, best first). Use lsdyna=true for LS-DYNA results (d3plot, binout: part
+    and global energies, contact forces ...).
+
+    Args:
+        query: Words of the result, for example "internal energy part" or "contact force".
+        lsdyna: Only operators for LS-DYNA results.
+        category: Optional operator family: result, math, mesh, scoping, utility, ...
+        n_results: Number of results (1-30, default 10).
+    """
+    arguments = {"query": query, "lsdyna": lsdyna, "category": category, "n_results": n_results}
+    return await run_guarded(ctx, "find_dpf_operators", arguments,
+                             lambda: dpf_operators(installed_dpf_catalog(), query, lsdyna, category, n_results))
+
+
+@function_tool
+async def check_dpf_script(ctx: RunContextWrapper[ChampionContext], path: str | None = None,
+                           code: str | None = None) -> str:
+    """Check a PyDPF (ansys-dpf-post / ansys-dpf-core) script against the API of the installed packages;
+    nothing is run and no DPF server is needed. Reports, with line numbers: unknown imports, names,
+    operators, methods and attributes; unknown, missing or too many arguments; unknown operator input
+    and output pins (op.inputs.<pin>, op.outputs.<pin>); read-only properties.
+
+    Args:
+        path: A .py file; a relative path starts at the working folder. Give path or code.
+        code: The script text, for a script that is not saved yet. Give path or code.
+    """
+    arguments = {"path": path} if path is not None else {"code_chars": len(code or "")}
+    return await run_guarded(ctx, "check_dpf_script", arguments,
+                             lambda: script_check(ctx.context, installed_dpf_catalog(), path, code))
+
+
 KEYWORD_TOOLS = (lookup_keyword, search_keyword, validate_keyword_params, lookup_api)
 CODE_TOOLS = (lookup_api, search_pydyna_api, lookup_keyword, check_pydyna_script)
-DPF_POST_TOOLS = (search_pydpf_post,)
+DPF_POST_TOOLS = (search_pydpf_post, lookup_dpf_api, find_dpf_operators, check_dpf_script)
+DPF_CORE_TOOLS = (search_pydpf_core, lookup_dpf_api, find_dpf_operators, check_dpf_script)

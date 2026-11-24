@@ -31,12 +31,12 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
-from champion.specialists.pydyna.api_catalog import DISTRIBUTION, PACKAGE, Catalog, CatalogError
+from champion.specialists.pydyna.api_catalog import Catalog, CatalogError
 
 ERROR, WARNING = "error", "warning"
 # keyword arguments every keyword class reads besides its fields (KeywordBase, Cards, CardSet)
 GENERIC_KEYWORD_ARGS = frozenset({"format", "user_comment", "parameter_set", "keyword_id", "uri_prefix"})
-NOTE = ("Static check against the installed package: only names bound to ansys.dyna.core are checked; "
+NOTE = ("Static check against the installed package: only names bound to {package} are checked; "
         "nothing was run. Values, units and the deck logic are not checked.")
 
 
@@ -63,11 +63,6 @@ class _Value:
     name: str  # the dotted path, the qualified class name or the keyword class name
 
 
-def _related(name: str) -> bool:
-    """Is a module name ansys.dyna.core, one of its parents or one of its submodules?"""
-    return name == PACKAGE or name.startswith(PACKAGE + ".") or PACKAGE.startswith(name + ".")
-
-
 def _short(qualified: str) -> str:
     return qualified.rsplit(".", 1)[-1]
 
@@ -88,8 +83,8 @@ class _Checker(ast.NodeVisitor):
         self.issues.append(issue)
         return issue
 
-    def _resolve(self, path: str) -> dict | None:
-        return self.catalog.resolve(path)
+    def _resolve(self, path: str, as_module: bool = False) -> dict | None:
+        return self.catalog.resolve(path, as_module=as_module) if as_module else self.catalog.resolve(path)
 
     def _eval(self, node: ast.AST) -> _Value | None:
         """What an expression is, as far as the check follows it (no issues are reported here)."""
@@ -99,8 +94,16 @@ class _Checker(ast.NodeVisitor):
             base = self._eval(node.value)
             if base is not None and base.kind == "path":
                 return _Value("path", f"{base.name}.{node.attr}")
+            if base is not None and base.kind == "instance" and not node.attr.startswith("_"):
+                found = self.catalog.member_type(base.name, node.attr)  # a property with a known class
+                return _Value("instance", found) if found else None
             return None
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                owner = self._eval(node.func.value)
+                if owner is not None and owner.kind == "instance" and not node.func.attr.startswith("_"):
+                    found = self.catalog.member_type(owner.name, node.func.attr, call=True)
+                    return _Value("instance", found) if found else None
             func = self._eval(node.func)
             if func is not None and func.kind == "path":
                 found = self._resolve(func.name)
@@ -108,6 +111,9 @@ class _Checker(ast.NodeVisitor):
                     return _Value("instance", found["name"])
                 if found and found["kind"] == "keyword_class":
                     return _Value("keyword", found["name"])
+                if found and found["kind"] == "function":
+                    returned = self.catalog.function_type(found["name"])
+                    return _Value("instance", returned) if returned else None
         return None
 
     def _members(self, value: _Value) -> tuple[dict, dict, bool, str]:
@@ -153,14 +159,14 @@ class _Checker(ast.NodeVisitor):
             bound = alias.asname or alias.name.split(".")[0]
             self._release(bound)
             self.env.pop(bound, None)
-            if not _related(alias.name):
+            if not self.catalog.related(alias.name):
                 continue
             self.counts["imports"] += 1
-            found = self._resolve(alias.name)
+            found = self._resolve(alias.name, as_module=True)
             if found is None or found["kind"] not in ("module", "keyword_namespace"):
                 parent = alias.name.rpartition(".")[0]
                 self._add(node, ERROR, "unknown-import",
-                          f"module {alias.name} is not in {DISTRIBUTION} {self.catalog.version}",
+                          f"module {alias.name} is not in {self.catalog.label(alias.name)}",
                           self.catalog.close_names(_short(alias.name), self.catalog.module_members(parent)))
                 continue
             self.env[bound] = _Value("path", alias.name if alias.asname else bound)
@@ -172,20 +178,20 @@ class _Checker(ast.NodeVisitor):
             bound = alias.asname or alias.name
             self._release(bound)
             self.env.pop(bound, None)
-        if node.level or not _related(module):
+        if node.level or not self.catalog.related(module):
             return
         self.counts["imports"] += 1
-        found = self._resolve(module)
+        found = self._resolve(module, as_module=True)
         if found is None or found["kind"] not in ("module", "keyword_namespace"):
             parent = module.rpartition(".")[0]
-            self._add(node, ERROR, "unknown-import", f"module {module} is not in {DISTRIBUTION} {self.catalog.version}",
+            self._add(node, ERROR, "unknown-import", f"module {module} is not in {self.catalog.label(module)}",
                       self.catalog.close_names(_short(module), self.catalog.module_members(parent)))
             return
         for alias in names:
             path = f"{module}.{alias.name}"
             if self._resolve(path) is None:
                 self._add(node, ERROR, "unknown-import",
-                          f"{alias.name} is not in {module} ({DISTRIBUTION} {self.catalog.version})",
+                          f"{alias.name} is not in {module} ({self.catalog.label(module)})",
                           self.catalog.close_names(alias.name, self.catalog.module_members(module)))
                 continue
             self.env[alias.asname or alias.name] = _Value("path", path)
@@ -230,10 +236,14 @@ class _Checker(ast.NodeVisitor):
             self.env.pop(node.id, None)
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        outer = dict(self.env)  # names bound in the function are local: they do not change the module's
         for arg in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]:
             self._release(arg.arg)
             self.env.pop(arg.arg, None)
         self.generic_visit(node)
+        for var in [v for v in self.env if self.env[v] != outer.get(v)]:
+            self._release(var)
+        self.env = outer
         self._release(node.name)
         self.env.pop(node.name, None)
 
@@ -254,9 +264,9 @@ class _Checker(ast.NodeVisitor):
         if parent["kind"] in ("module", "keyword_namespace"):
             what = "keyword class" if parent["kind"] == "keyword_namespace" else "name"
             self._add(node, ERROR, "unknown-name",
-                      f"{what} {node.attr} is not in {base.name} ({DISTRIBUTION} {self.catalog.version})",
+                      f"{what} {node.attr} is not in {base.name} ({self.catalog.label(base.name)})",
                       self.catalog.close_names(node.attr, self.catalog.module_members(parent["name"])))
-        elif parent["kind"] == "class":
+        elif parent["kind"] == "class" and not node.attr.startswith("_"):
             members, complete = self.catalog.class_members(parent["name"])
             if complete:
                 self._add(node, ERROR, "unknown-member", f"{_short(parent['name'])} has no attribute {node.attr}",
@@ -431,7 +441,7 @@ class _Checker(ast.NodeVisitor):
 
 def check_source(catalog: Catalog, text: str, name: str = "<script>") -> dict:
     """Check one script; the result lists every issue with its line (1-based) and column (0-based)."""
-    base = {"package": DISTRIBUTION, "version": catalog.version, "script": name}
+    base = {"package": catalog.distribution, "version": catalog.version, "script": name}
     try:
         tree = ast.parse(text, filename=name)
     except SyntaxError as exc:
@@ -447,6 +457,7 @@ def check_source(catalog: Catalog, text: str, name: str = "<script>") -> dict:
         checker.issues.append(Issue(0, 0, ERROR, "too-deep", "the script is nested too deeply to check"))
     issues = checker.finish()
     errors = sum(1 for i in issues if i.severity == ERROR)
-    note = NOTE if checker.counts["imports"] else "The script does not import ansys.dyna.core: nothing to check."
+    note = (NOTE.format(package=catalog.package) if checker.counts["imports"]
+            else f"The script does not import {catalog.package}: nothing to check.")
     return {**base, "ok": not issues, "errors": errors, "warnings": len(issues) - errors,
             "issues": [i.as_dict() for i in issues], "checked": dict(checker.counts), "note": note}

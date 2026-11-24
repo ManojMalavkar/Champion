@@ -184,6 +184,13 @@ def _class(node: ast.ClassDef, module: str, source_path: str) -> dict:
     members: dict[str, dict] = {}
     attributes: list[tuple[str, int]] = []
     for item in node.body:
+        if isinstance(item, (ast.If, ast.Try, ast.With)):  # class attributes inside try / if blocks
+            for inner in _top_statements([item]):
+                if isinstance(inner, (ast.Assign, ast.AnnAssign)):
+                    for name in _assigned_names(inner):
+                        if not name.startswith("_"):
+                            members.setdefault(name, _attribute(name, inner.lineno))
+            continue
         if isinstance(item, (ast.Assign, ast.AnnAssign)):  # class attributes
             for name in _assigned_names(item):
                 if not name.startswith("_"):
@@ -235,6 +242,56 @@ def _top_names(body: list[ast.stmt]) -> set[str]:
             for handler in item.handlers:
                 names |= _top_names(handler.body)
     return names
+
+
+def _top_statements(body: list[ast.stmt]):
+    """Top-level statements of a module, also inside top-level if / try / with blocks."""
+    for item in body:
+        yield item
+        if isinstance(item, (ast.If, ast.With)):
+            yield from _top_statements(item.body)
+            yield from _top_statements(getattr(item, "orelse", []))
+        elif isinstance(item, ast.Try):
+            for block in (item.body, item.orelse, item.finalbody, *(h.body for h in item.handlers)):
+                yield from _top_statements(block)
+
+
+def _imported(body: list[ast.stmt], module: str, is_package: bool) -> dict[str, str]:
+    """name -> qualified name of every top-level ``from x import name`` (relative ones resolved)."""
+    found: dict[str, str] = {}
+    base = module if is_package else module.rpartition(".")[0]
+    for item in _top_statements(body):
+        if not isinstance(item, ast.ImportFrom):
+            continue
+        source = item.module or ""
+        if item.level:
+            parts = base.split(".")
+            if item.level - 1 >= len(parts):
+                continue
+            source = ".".join(parts[:len(parts) - item.level + 1] + ([item.module] if item.module else []))
+        for alias in item.names:
+            if alias.name != "*":
+                found[alias.asname or alias.name] = f"{source}.{alias.name}"
+    return found
+
+
+def _dynamic(node: ast.ClassDef) -> bool:
+    """Does a class add attributes at run time (``__getattr__``, ``__setattr__``, ``setattr(self, name, ...)``,
+    ``self.__dict__.update``)? Then a name missing in the catalog may exist."""
+    for item in ast.walk(node):
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in (
+                "__getattr__", "__getattribute__", "__setattr__"):
+            return True
+        if (isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == "setattr"
+                and len(item.args) >= 2 and not isinstance(item.args[1], ast.Constant)):
+            target = item.args[0]
+            if ((isinstance(target, ast.Name) and target.id in ("self", "cls"))
+                    or (isinstance(target, ast.Attribute) and target.attr == "__class__")):
+                return True
+        if (isinstance(item, ast.Attribute) and item.attr == "update" and isinstance(item.value, ast.Attribute)
+                and item.value.attr == "__dict__"):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------- keyword classes
@@ -390,16 +447,24 @@ def _keyword_detail(path: Path, class_name: str) -> dict:
 class Catalog:
     """API records of one ansys-dyna-core folder and version."""
 
-    def __init__(self, root: Path, version: str):
+    def __init__(self, root: Path, version: str, package: str = PACKAGE, distribution: str = DISTRIBUTION,
+                 search_tool: str = "search_pydyna_api"):
         self.root = Path(root)
         self.version = version
+        self.package = package
+        self.distribution = distribution
+        self.search_tool = search_tool  # named in the hint of an unknown name
+        self.peers: list[Catalog] = []  # catalogs of the packages this one imports from (DPF: post and core)
         self.skipped: list[str] = []
         self._by_class: dict[str, list[KeywordEntry]] = {}
         self._by_keyword: dict[str, list[KeywordEntry]] = {}
         self._classes: dict[str, dict] = {}  # qualified name -> class record
         self._short: dict[str, list[str]] = {}  # short class name -> qualified names
         self._functions: dict[str, dict] = {}  # qualified name -> function record
-        self._exports: dict[str, str] = {}  # name -> qualified name exported by ansys.dyna.core
+        self._exports: dict[str, str] = {}  # name -> qualified name exported by the package itself
+        self._imports: dict[str, dict[str, str]] = {}  # module -> name -> qualified name of a from-import
+        self._dynamic: set[str] = set()  # classes that add attributes at run time (__getattr__, setattr)
+        self._open: set[str] = set()  # modules with names the catalog cannot list (import *, __getattr__)
         self._details: dict[tuple[Path, str], dict] = {}
         self._modules: set[str] = set()  # parsed modules outside the keyword classes
         self._module_names: dict[str, set[str]] = {}  # module -> every top-level name (variables too)
@@ -413,7 +478,7 @@ class Catalog:
 
     # -------------------------------------------------- scanning
     def _source_path(self, path: Path) -> str:
-        return "ansys/dyna/core/" + path.relative_to(self.root).as_posix()
+        return self.package.replace(".", "/") + "/" + path.relative_to(self.root).as_posix()
 
     def _scan_keywords(self) -> None:
         raw: dict[str, tuple[str | None, str | None]] = {}  # class -> (keyword, subkeyword) as in the source
@@ -476,7 +541,7 @@ class Catalog:
                 parts = parts[:-1]
             if any(p.startswith("_") for p in parts):
                 continue
-            module = ".".join([PACKAGE, *parts])
+            module = ".".join([self.package, *parts])
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             except (SyntaxError, UnicodeDecodeError, ValueError):
@@ -484,19 +549,28 @@ class Catalog:
                 continue
             self._modules.add(module)
             self._module_names[module] = _top_names(tree.body)
+            self._imports[module] = _imported(tree.body, module, path.name == "__init__.py")
+            if "__getattr__" in self._module_names[module] or any(
+                    isinstance(i, ast.ImportFrom) and any(a.name == "*" for a in i.names)
+                    for i in _top_statements(tree.body)):
+                self._open.add(module)
+            self._module_parsed(module, tree, path)
             for item in tree.body:
-                if module == PACKAGE and isinstance(item, ast.ImportFrom) and item.module:
-                    for alias in item.names:
-                        self._exports[alias.asname or alias.name] = f"{item.module}.{alias.name}"
                 if isinstance(item, ast.ClassDef) and not item.name.startswith("_"):
                     record = _class(item, module, self._source_path(path))
                     self._classes[record["qualified_name"]] = record
+                    if _dynamic(item):
+                        self._dynamic.add(record["qualified_name"])
                     self._short.setdefault(item.name, []).append(record["qualified_name"])
                 elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and not item.name.startswith("_"):
                     record = _function(item, in_class=False)
                     record.update(qualified_name=f"{module}.{item.name}", module=module,
                                   source_path=self._source_path(path))
                     self._functions[record["qualified_name"]] = record
+        self._exports = self._imports.get(self.package, {})
+
+    def _module_parsed(self, module: str, tree: ast.Module, path: Path) -> None:
+        """Called for every parsed module (a subclass collects more, as the DPF operators)."""
 
     # -------------------------------------------------- records
     def stats(self) -> dict:
@@ -506,11 +580,11 @@ class Catalog:
                 "api_functions": len(self._functions), "skipped_files": len(self.skipped)}
 
     def _base(self, source_path: str, line: int) -> dict:
-        return {"package": DISTRIBUTION, "version": self.version, "source_path": source_path, "line": line}
+        return {"package": self.distribution, "version": self.version, "source_path": source_path, "line": line}
 
     def _import(self, qualified: str, name: str, module: str) -> str:
         exported = [n for n, q in self._exports.items() if q == qualified]
-        return f"from {PACKAGE} import {exported[0]}" if exported else f"from {module} import {name}"
+        return f"from {self.package} import {exported[0]}" if exported else f"from {module} import {name}"
 
     def _detail(self, entry: KeywordEntry) -> dict:
         key = (entry.path, entry.class_name)
@@ -540,7 +614,7 @@ class Catalog:
         entry = entries[-1]
         detail = self._cards_detail(entry)
         record = {"kind": "keyword", "keyword": entry.keyword, "class": entry.class_name,
-                  "import": f"from {PACKAGE} import keywords  # then keywords.{entry.class_name}()",
+                  "import": f"from {self.package} import keywords  # then keywords.{entry.class_name}()",
                   **self._base(self._source_path(entry.path), entry.line),
                   **{k: v for k, v in detail.items() if k not in _DETAIL_INTERNAL},
                   "note": "field names are the Python attribute names (lower case); in the deck they are upper case"}
@@ -575,7 +649,7 @@ class Catalog:
     def _resolve_class(self, name: str) -> str | None:
         if name in self._classes:
             return name
-        if name.startswith(PACKAGE + "."):
+        if name.startswith(self.package + "."):
             return None
         if name in self._exports and self._exports[name] in self._classes:
             return self._exports[name]
@@ -611,7 +685,7 @@ class Catalog:
             record = self._keyword_by_name(text)
             if record:
                 return record
-        short = text.removeprefix("keywords.").removeprefix(f"{PACKAGE}.keywords.")
+        short = text.removeprefix("keywords.").removeprefix(f"{self.package}.keywords.")
         if short in self._by_class and not self._resolve_class(short):
             return self._keyword_record(self._by_class[short])
         qualified = self._resolve_class(text)
@@ -625,7 +699,7 @@ class Catalog:
             if owner_q and member in self._classes[owner_q]["members"]:
                 return self._member_record(owner_q, member)
             if owner_q:
-                raise CatalogError(f"{owner_q} has no public member {member} in {DISTRIBUTION} {self.version}."
+                raise CatalogError(f"{owner_q} has no public member {member} in {self.distribution} {self.version}."
                                    + self._hint(text))
         functions = [q for q in self._functions if q.rsplit(".", 1)[1] == text]
         if len(functions) == 1:
@@ -633,21 +707,31 @@ class Catalog:
         ambiguous = self._ambiguous(text)
         if ambiguous:
             raise CatalogError(f"{text} is ambiguous; use one of: {', '.join(ambiguous)}")
-        raise CatalogError(f"{text} is not in {DISTRIBUTION} {self.version}." + self._hint(text))
+        raise CatalogError(f"{text} is not in {self.distribution} {self.version}." + self._hint(text))
 
     # -------------------------------------------------- for the script check (api_check.py, T1.2b)
-    def resolve(self, path: str, _depth: int = 0) -> dict | None:
-        """What a dotted name under ansys.dyna.core is: module, keyword_namespace, keyword_class, class,
-        function or member (``{"kind": ..., "name": ...}``), or None when the catalog does not know it."""
-        if path == PACKAGE or PACKAGE.startswith(path + "."):
+    def resolve(self, path: str, _depth: int = 0, as_module: bool = False) -> dict | None:
+        """What a dotted name under the package is: module, keyword_namespace, keyword_class, class,
+        function or member (``{"kind": ..., "name": ...}``), or None when the catalog does not know it.
+        A name under a peer package is resolved by that peer. ``as_module`` (an import statement):
+        a module file wins over a name its parent imports (``import a.b`` loads the file a/b.py)."""
+        if path == self.package or self.package.startswith(path + "."):
             return {"kind": "module", "name": path}
+        if not path.startswith(self.package + "."):
+            peer = self._peer_for(path)
+            return peer.resolve(path, _depth, as_module) if peer is not None and _depth < 4 else None
         if path in KEYWORD_NAMESPACES:
             return {"kind": "keyword_namespace", "name": path}
         parent, _, name = path.rpartition(".")
         if parent in KEYWORD_NAMESPACES and name in self._by_class:
             return {"kind": "keyword_class", "name": name}
-        if parent == PACKAGE and name in self._exports and _depth < 3:
-            return self.resolve(self._exports[name], _depth + 1)
+        if as_module and (path in self._modules or self._module_file(path)):
+            return {"kind": "module", "name": path}
+        target = self._imports.get(parent, {}).get(name)
+        if target and target != path and _depth < 3:  # from x import name in parent (wins over a submodule name)
+            found = self.resolve(target, _depth + 1)
+            if found is not None:
+                return found
         if path in self._modules or self._module_file(path):
             return {"kind": "module", "name": path}
         if (parent not in KEYWORD_NAMESPACES and self._module_file(parent)
@@ -662,7 +746,11 @@ class Catalog:
             return {"kind": "function", "name": path}
         if name in self._module_names.get(parent, ()):  # a variable, a private or an imported name
             return {"kind": "variable", "name": path}
+        if parent in self._open or any(part.startswith("_") for part in parent.split(".")):
+            return {"kind": "variable", "name": path}  # import * / __getattr__ / private module: not checked
         owner = self.resolve(parent, _depth + 1) if parent and _depth < 3 else None
+        if owner is not None and owner["kind"] == "module" and owner["name"] != parent:
+            return self.resolve(f"{owner['name']}.{name}", _depth + 1)  # parent is an imported module
         if owner is not None and owner["kind"] == "class":  # also through an export: ansys.dyna.core.Deck.write
             members, _ = self.class_members(owner["name"])
             if name in members:
@@ -671,9 +759,9 @@ class Catalog:
 
     def _module_file(self, path: str) -> Path | None:
         """The file or package folder of a dotted module name under the package, if it exists."""
-        if not path.startswith(PACKAGE + "."):
+        if not path.startswith(self.package + "."):
             return None
-        base = self.root.joinpath(*path[len(PACKAGE) + 1:].split("."))
+        base = self.root.joinpath(*path[len(self.package) + 1:].split("."))
         for candidate in (base.with_suffix(".py"), base / "__init__.py", base):
             if candidate.exists() and (candidate.suffix == ".py" or candidate.is_dir()):
                 return candidate
@@ -688,13 +776,24 @@ class Catalog:
         names += sorted(n for n in self._module_names.get(module, ()) if not n.startswith("_"))
         return list(dict.fromkeys(names))
 
+    def _peer_for(self, path: str) -> Catalog | None:
+        return next((p for p in self.peers if path == p.package or path.startswith(p.package + ".")), None)
+
+    def _owner(self, qualified: str) -> Catalog | None:
+        """The catalog (this one or a peer) that has a class."""
+        return next((c for c in (self, *self.peers) if qualified in c._classes), None)
+
     def _base_class(self, base: str, module: str) -> str | None:
-        base = base.split("[")[0]
-        for candidate in (base, f"{module}.{base}"):
-            if candidate in self._classes:
+        """The qualified name of a class named in ``module`` (a base or an annotation), if known."""
+        base = base.split("[")[0].strip()
+        for candidate in (base, f"{module}.{base}", self._imports.get(module, {}).get(base)):
+            if candidate and self._owner(candidate):
                 return candidate
-        found = self._short.get(base.rsplit(".", 1)[-1], [])
-        return found[0] if len(found) == 1 else None
+        for catalog in (self, *self.peers):
+            found = catalog._short.get(base.rsplit(".", 1)[-1], [])
+            if len(found) == 1:
+                return found[0]
+        return None
 
     def class_members(self, qualified: str) -> tuple[dict, bool]:
         """Public members of a class and its bases, and whether every base is in the catalog
@@ -706,16 +805,78 @@ class Catalog:
             if name in seen:
                 continue
             seen.add(name)
-            cls = self._classes[name]
+            owner = self._owner(name)
+            if owner is None:  # not a class of the catalog (a class made at run time): nothing to list
+                complete = False
+                continue
+            cls = owner._classes[name]
+            if name in owner._dynamic:  # names added at run time cannot be listed
+                complete = False
             for member, record in cls["members"].items():
                 members.setdefault(member, record)
             for base in cls["bases"]:
-                found = self._base_class(base, cls["module"])
+                found = owner._base_class(base, cls["module"])
                 if found:
                     queue.append(found)
                 elif base not in TRIVIAL_BASES and not base.startswith("metaclass"):
                     complete = False
         return members, complete
+
+    def _defined_in(self, qualified: str, member: str) -> tuple[dict, str] | None:
+        """(record, module) of the class in the bases of ``qualified`` that defines ``member``."""
+        seen, queue = set(), [qualified]
+        while queue:
+            name = queue.pop(0)
+            owner = self._owner(name) if name not in seen else None
+            seen.add(name)
+            if owner is None:
+                continue
+            cls = owner._classes[name]
+            if member in cls["members"]:
+                return cls["members"][member], cls["module"]
+            queue.extend(found for base in cls["bases"] if (found := owner._base_class(base, cls["module"])))
+        return None
+
+    def _annotated_class(self, text: str | None, module: str) -> str | None:
+        if not text:
+            return None
+        text = text.strip().strip("'\"").split("[")[0].strip()
+        if not text or "|" in text or text in ("None", "Any", "Self"):
+            return None
+        found = self._base_class(text, module)
+        return found if found and self._owner(found) else None
+
+    def member_type(self, qualified: str, member: str, call: bool = False) -> str | None:
+        """The class that a property (``call=False``) or a method call (``call=True``) of a class
+        returns, from its annotation, when the catalog has that class."""
+        found = self._defined_in(qualified, member)
+        if found is None:
+            return None
+        record, module = found
+        if call and record.get("kind") in ("method", "staticmethod", "classmethod"):
+            return self._annotated_class(record.get("returns"), module)
+        if not call and record.get("kind") == "property":
+            return self._annotated_class(record.get("type"), module)
+        return None
+
+    def function_type(self, qualified: str) -> str | None:
+        """The class a module function returns, from its annotation."""
+        owner = next((c for c in (self, *self.peers) if qualified in c._functions), None)
+        if owner is None:
+            return None
+        record = owner._functions[qualified]
+        return owner._annotated_class(record.get("returns"), record["module"])
+
+    def related(self, name: str) -> bool:
+        """Is a module name the package (or a peer), one of its parents or one of its submodules?"""
+        return any(name == p or name.startswith(p + ".") or p.startswith(name + ".")
+                   for p in (self.package, *(c.package for c in self.peers)))
+
+    def label(self, path: str | None = None) -> str:
+        """Distribution and version of the package a name belongs to."""
+        owner = self._peer_for(path) if path and not path.startswith(self.package) else None
+        owner = owner or self
+        return f"{owner.distribution} {owner.version}"
 
     def keyword_api(self, class_name: str, _depth: int = 0) -> dict:
         """What a script may use on a keyword class: constructor fields (with their option), properties
@@ -779,7 +940,7 @@ class Catalog:
 
     def _hint(self, text: str) -> str:
         close = self.close_names(text, self.names())
-        return f" Close names: {', '.join(close)}." if close else " Use search_pydyna_api to find it."
+        return f" Close names: {', '.join(close)}." if close else f" Use {self.search_tool} to find it."
 
 
 _CATALOGS: dict[tuple[Path, str], Catalog] = {}

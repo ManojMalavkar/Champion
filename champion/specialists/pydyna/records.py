@@ -2,7 +2,9 @@
 
 Reads the JSONL files in ``knowledge/pydyna/knowledge-base/`` and turns each
 record into ``(id, document, metadata)`` for the three collections of the old
-PyDyna_Agent (built there by ``sacreate.py``):
+PyDyna_Agent (built there by ``sacreate.py``) and the new ``pydpf_core`` (T1.3b;
+files written by ``source_data.py``, collection built by ``build_index.py`` in
+its own database folder):
 
 =================  =========================================================
 Collection         Files
@@ -11,7 +13,8 @@ lsdyna_keywords    ``keyword_schema.jsonl`` (or ``keyword_schema-part-*``),
                    then ``keyword_reference.jsonl`` (curated)
 pydyna_api         ``pydyna_docs.jsonl``, then ``pydyna_source-part-*.jsonl``
                    (or ``pydyna_source.jsonl``)
-pydpf_post         ``pydpf_post_source.jsonl``
+pydpf_post         ``pydpf_post_source.jsonl`` (or ``pydpf_post_source-part-*``)
+pydpf_core         ``pydpf_core_source.jsonl`` (or ``pydpf_core_source-part-*``)
 =================  =========================================================
 
 Document text and metadata follow ``sacreate.py`` so search behaves as before.
@@ -40,6 +43,7 @@ from typing import Iterable, Iterator
 KW_COLLECTION = "lsdyna_keywords"
 API_COLLECTION = "pydyna_api"
 DPF_POST_COLLECTION = "pydpf_post"
+DPF_CORE_COLLECTION = "pydpf_core"
 
 KW_SCHEMA_FILE = "keyword_schema.jsonl"
 KW_SCHEMA_SHARDS = "keyword_schema-part-*.jsonl"
@@ -48,6 +52,9 @@ API_DOCS_FILE = "pydyna_docs.jsonl"
 API_SOURCE_FILE = "pydyna_source.jsonl"
 API_SOURCE_SHARDS = "pydyna_source-part-*.jsonl"
 DPF_POST_FILE = "pydpf_post_source.jsonl"
+DPF_POST_SHARDS = "pydpf_post_source-part-*.jsonl"
+DPF_CORE_FILE = "pydpf_core_source.jsonl"
+DPF_CORE_SHARDS = "pydpf_core_source-part-*.jsonl"
 
 GENERATED_SOURCE = "PyDyna codegen schema"
 CURATED_SOURCE = "curated reference"
@@ -277,10 +284,26 @@ def dpf_post_document(record: dict) -> Document:
 
 
 def dpf_post_documents(kb_dir: Path) -> list[Document]:
-    path = Path(kb_dir) / DPF_POST_FILE
-    if not path.is_file():
-        return []
-    return unique_ids(dpf_post_document(record) for record in read_jsonl(path)
+    files = _shards_or_file(Path(kb_dir), DPF_POST_SHARDS, DPF_POST_FILE)
+    return unique_ids(dpf_post_document(record) for path in files for record in read_jsonl(path)
+                      if keep_code_path(record.get("source_path", "")))
+
+
+def dpf_core_document(record: dict) -> Document:
+    """Same text and metadata as ``pydpf_post`` (with the version of the source), id prefix ``dpfcore``."""
+    post = dpf_post_document(record)
+    metadata = {**post.metadata, "source_project": record.get("source_project", "PyDPF-Core")}
+    if record.get("version"):
+        metadata["version"] = str(record["version"])
+    return Document(id=_chunk_id("dpfcore", record), text=post.text, metadata=metadata)
+
+
+def dpf_core_files(kb_dir: Path) -> list[Path]:
+    return _shards_or_file(Path(kb_dir), DPF_CORE_SHARDS, DPF_CORE_FILE)
+
+
+def dpf_core_documents(kb_dir: Path) -> list[Document]:
+    return unique_ids(dpf_core_document(record) for path in dpf_core_files(kb_dir) for record in read_jsonl(path)
                       if keep_code_path(record.get("source_path", "")))
 
 
