@@ -13,6 +13,9 @@ Design points:
   model is ``OpenAIChatCompletionsModel``; with ``openai`` it is
   ``OpenAIResponsesModel``.
 * Tracing is off unless ``llm.tracing`` is true (SDK traces go to OpenAI).
+* ``llm.verify_tls: false`` (only with an internal ``llm.base_url``) turns
+  the server certificate check off, like ``curl -k``; the chat start line and
+  ``champion doctor`` say so.
 * Conversation memory is an in-memory ``SQLiteSession``; only the last
   ``orchestration.history_turns`` turns are sent with each request, which keeps
   cost and context size bounded. ``new_session()`` forgets everything.
@@ -39,7 +42,7 @@ from typing import Any, Callable, Mapping
 from agents import (Agent, OpenAIChatCompletionsModel, OpenAIResponsesModel, RunConfig, Runner,
                     SQLiteSession)
 from agents.models.interface import Model
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 from champion.core.config import PLACEHOLDER_MODEL, Config, get_openai_api_key
 from champion.core.context import ChampionContext
@@ -58,7 +61,8 @@ def build_client(config: Config, env: Mapping[str, str] | None = None) -> AsyncO
         raise RuntimeSetupError(
             f"{api_key_env} not found in the environment or .env; run 'champion doctor'"
         )
-    return AsyncOpenAI(api_key=key, base_url=config.get("llm.base_url"))
+    http_client = None if config.get("llm.verify_tls") else DefaultAsyncHttpxClient(verify=False)
+    return AsyncOpenAI(api_key=key, base_url=config.get("llm.base_url"), http_client=http_client)
 
 
 def build_model(config: Config, client: AsyncOpenAI) -> Model:

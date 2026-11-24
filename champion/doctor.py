@@ -77,6 +77,10 @@ def check_config(config: Config) -> list[CheckResult]:
     tracing = config.get("llm.tracing")
     results.append(CheckResult("SDK tracing", WARN if tracing else OK,
                                "on: traces are sent to OpenAI" if tracing else "off"))
+    if not config.get("llm.verify_tls"):
+        results.append(CheckResult("TLS certificate check", WARN,
+                                   f"off (llm.verify_tls: false) for {config.get('llm.base_url')}: "
+                                   "the server is not verified (like curl -k)"))
     return results
 
 
@@ -190,7 +194,13 @@ def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[C
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=key, base_url=config.get("llm.base_url"), timeout=15, max_retries=0)
+        http_client = None
+        if not config.get("llm.verify_tls"):  # like curl -k; only with an internal llm.base_url
+            from openai import DefaultHttpxClient
+
+            http_client = DefaultHttpxClient(verify=False)
+        client = OpenAI(api_key=key, base_url=config.get("llm.base_url"), timeout=15, max_retries=0,
+                        http_client=http_client)
     except Exception as exc:  # report the error type only; messages may echo request details
         status = getattr(exc, "status_code", None)
         code = f" (HTTP {status})" if status else ""
