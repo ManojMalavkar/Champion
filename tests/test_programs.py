@@ -536,6 +536,32 @@ def test_duplicate_names_fail_instead_of_overriding(tmp_path):
         unregister_program("echo_args")
 
 
+@pytest.mark.real_program_defaults
+def test_home_behind_a_link_uses_the_real_home(tmp_path, monkeypatch):
+    """Linux check 25 Nov 2026: /home is a link on the user's machine; ~/.champion/programs was refused."""
+    real_home = (tmp_path / "d" / "people" / "me").resolve()
+    real_home.mkdir(parents=True)
+    os.symlink(tmp_path / "d", tmp_path / "home")  # like /home -> /d
+    monkeypatch.setenv("HOME", str(tmp_path / "home" / "people" / "me"))
+    work = (tmp_path / "work").resolve()
+    work.mkdir()
+    file = tmp_path / "config.yaml"  # no programs section: the real defaults ~/.champion/...
+    file.write_text(yaml.safe_dump({"llm": {"model_id": "m"}, "execution": {"working_directory": str(work)}}))
+    config = load_config(file, env={}, cwd=tmp_path)
+    folder = real_home / ".champion" / "programs"
+    assert config.get("programs.folder") == str(folder)
+    assert config.get("programs.trust_file") == str(real_home / ".champion" / "programs.trust")
+    folder.mkdir(parents=True, mode=0o700)
+    (folder / "echo.sh").write_text(ECHO)
+    os.chmod(folder / "echo.sh", 0o755)
+    (folder / "programs.yaml").write_text(yaml.safe_dump({"programs": [entry()]}))
+    assert [s.status for s in pm.program_states(config, work)] == [pm.UNTRUSTED]
+    assert pm.trust(config, "echo_args", work).status == pm.TRUSTED
+    assert "arg=a" in run_program(ctx(config), spec_of(config, work), {"word": "a"})
+    linked = str(tmp_path / "home" / "people" / "me" / ".champion" / "programs")  # written by hand
+    assert f"set programs.folder to the real path {folder}" in pm.folder_problem(linked, work)
+
+
 def test_unsafe_trust_file_is_refused(tmp_path):
     config, work, _ = trusted(tmp_path, [entry()])
     os.chmod(tmp_path / "trust" / "programs.trust", 0o666)

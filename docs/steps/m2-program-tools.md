@@ -64,12 +64,16 @@ Parameter types: `path` (read or edit access, checked exactly like the file tool
 * Trust, race and path tests: interpreter link retargeted to an identical copy -> `changed (interpreter target)`; interpreter changed during the approval prompt -> not run; program replaced by a link after trust -> refused; program path leaving the folder or through a linked folder -> refused; interpreter inside the working folder -> refused; group-writable trust file -> nothing trusted; remote at 1.1 runs after approval, remote with an edit path at 1.1 refused.
 * End to end with `examples/programs/`: `champion programs list` (untrusted), `trust run_summary`, `trust clean_run_dir`, `check` (trusted); `program_run_summary` on a fake run folder (5 files, 2 d3plot, normal termination); `program_clean_run_dir` asked for approval with the no-undo warning, removed the 3 result files, kept `main.k` and `messag`, one `deleted` entry in the change list.
 
+## Linux check finding (25 Nov 2026)
+
+`champion programs list` refused the default folder: `programs folder /home/<user>/.champion/programs: /home is a symbolic link`. On that machine `/home` is a link, and `~` was expanded with the plain `HOME`. Fix: `programs.folder` and `programs.trust_file` expand `~` to the real home (links resolved), as the memory paths have done since 4e.8. A path written by hand through a link is still refused, and the error now names the real path to use. Test `test_home_behind_a_link_uses_the_real_home` fails on `ca0d8f3` and passes with the fix; 454 tests pass.
+
 ## Verify (Linux, after pull)
 
 ```bash
 cd <main worktree>
 git pull
-python -m pytest -q            # 453 passed with chromadb installed (444 passed, 9 skipped without)
+python -m pytest -q            # 454 passed with chromadb installed (445 passed, 9 skipped without)
 mkdir -p ~/.champion/programs && chmod 700 ~/.champion/programs
 cp examples/programs/* ~/.champion/programs/ && chmod 755 ~/.champion/programs/*.sh
 champion programs list         # two untrusted programs

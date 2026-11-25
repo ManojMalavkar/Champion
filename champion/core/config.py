@@ -409,11 +409,19 @@ def _resolve(value: Any, base: Path) -> Any:
     return str(path if path.is_absolute() else (base / path).resolve())
 
 
+REAL_HOME_KEYS = ("programs.folder", "programs.trust_file")  # checked for links: ~ = real home
+
+
 def _resolve_paths(data: dict, root: Path, cwd: Path) -> None:
+    from champion.policy.scope import expand_home  # ~ = real home (links resolved, /home -> /d/people)
+
     data["execution"]["working_directory"] = _resolve(data["execution"]["working_directory"], cwd)
     for dotted in ROOT_PATH_KEYS:
         section, key = dotted.split(".")
-        data[section][key] = _resolve(data[section][key], root)
+        value = data[section][key]
+        if dotted in REAL_HOME_KEYS and isinstance(value, str):
+            value = expand_home(value)
+        data[section][key] = _resolve(value, root)
     sources = data["kb"]["sources"]
     for name in list(sources):
         sources[name] = _resolve(sources[name], root)

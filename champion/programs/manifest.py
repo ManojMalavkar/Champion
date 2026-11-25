@@ -92,7 +92,7 @@ def file_problem(path: str, working_directory: Path | None, *, executable: bool,
         return f"{what} {path} is not an absolute path"
     link = find_symlink(Path(path))
     if link is not None:
-        return f"{what} {path}: {link} is a symbolic link; give the real path"
+        return f"{what} {path}: {link} is a symbolic link; give the real path {os.path.realpath(path)}"
     try:
         info = os.lstat(path)
     except FileNotFoundError:
@@ -115,7 +115,8 @@ def file_problem(path: str, working_directory: Path | None, *, executable: bool,
 def folder_problem(folder: str, working_directory: Path | None) -> str | None:
     link = find_symlink(Path(folder))
     if link is not None:
-        return f"programs folder {folder}: {link} is a symbolic link"
+        return (f"programs folder {folder}: {link} is a symbolic link; set programs.folder to the real path "
+                f"{os.path.realpath(folder)} (~ is resolved automatically)")
     info = os.lstat(folder)
     if not stat.S_ISDIR(info.st_mode):
         return f"programs folder {folder} is not a folder"

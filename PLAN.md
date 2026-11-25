@@ -1835,7 +1835,8 @@ Decisions (user, 24-25 Nov 2026), replacing the defaults below where they differ
 
 - [x] M2.1-M2.8 built (boxes below).
 - [x] Tests: 74 in `tests/test_programs.py` (trust, race and path tests included); 453 pass on Databricks serverless (chromadb installed, no skips). End to end with `examples/programs/`: list, trust, check, a read run and an approved delete run.
-- [ ] Local check (user, Linux machine): `pytest -q` 453 passed (444 + 9 skipped without chromadb); copy `examples/programs/` to `~/.champion/programs/`, trust both, `champion chat --level 1.2`: "Summarise the run in runs/a", "Clean the result files in runs/a" (approval, `/changes`).
+- [x] Linux check 25 Nov 2026, part 1: `pytest -q` 453 passed (chromadb installed). Finding: `champion programs list` refused `~/.champion/programs` because `/home` is a link on the Linux machine. Fix: `programs.folder` and `programs.trust_file` expand `~` to the real home (links resolved), like the memory paths since 4e.8; a path written through a link names the real path in the error. +1 test (fails on `ca0d8f3`, passes with the fix); 454 pass on serverless.
+- [ ] Local check (user, Linux machine): `pytest -q` 454 passed; copy `examples/programs/` to `~/.champion/programs/`, trust both, `champion chat --level 1.2`: "Summarise the run in runs/a", "Clean the result files in runs/a" (approval, `/changes`).
 - [ ] T2 HPC track: declare `mjob` and queue tools with `register_program` (class `remote`), path from the track's config section.
 
 #### M2 plan: program tools (started 24 Nov 2026)
