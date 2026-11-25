@@ -244,6 +244,7 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | M0 | 269 | Discovery in `specialists/registry.py`; `register_config_section`, `example_fragment_problems` in `core/config.py`; `members` in `specialists/base.py`; groups in `agents/orchestrator.py`; `tests/conftest.py`; `docs/tracks/` | Step M0 |
 | M1 | 377 | `knowledge/root.py`, `manifest.py`, `store.py`, `embedding.py`, `registry.py`, `search.py`, `tools.py`, `builder.py`, `status.py`; `files`/`knowledge` sections; `champion kb` | Step M1 |
 | M2 | 453 | `programs/spec.py`, `manifest.py`, `runner.py`, `tools.py`; `programs` section; `champion programs`; `run_steps(executables, path_prepend)` | Step M2 |
+| M2 Linux fixes | 456 | `~` = real home for program paths; agent description and start line name the programs; program agents call the tool; orchestrator never refuses or asks "reply yes" by itself (Linux check passed 25 Nov 2026) | `1a4a728`..`89419b3` |
 
 ## 8. Demo script (current state)
 
