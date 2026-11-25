@@ -372,6 +372,20 @@ def test_orchestrator_and_start_line_know_the_programs(tmp_path):
     assert "Programs: program_echo_args (linux_coder)." in out
 
 
+def test_orchestrator_does_not_refuse_from_its_own_reading(tmp_path):
+    """Linux check: the orchestrator refused a clean request itself, naming a wrong working folder."""
+    import types
+
+    from champion.agents.orchestrator import orchestrator_instructions, with_current_level
+
+    config, work, _ = trusted(tmp_path, [entry()])
+    assert "Never refuse a work request from your own reading of the access list" in \
+        orchestrator_instructions([LINUX_CODER])
+    context = ctx(config)
+    text = with_current_level("Base.")(RunContextWrapper(context), types.SimpleNamespace(name="x"))
+    assert f"Working folder: {context.working_directory} (relative paths start here)." in text
+
+
 def test_many_programs_use_list_and_run(tmp_path):
     entries = [entry(), entry("second")]
     config, work, _ = trusted(tmp_path, entries, extra={"programs": {

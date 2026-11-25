@@ -107,6 +107,9 @@ How to use specialists:
   for the same task in the same turn after the user declined.
 - If a specialist reports BLOCKED, pass the reason on; do not retry the same task
   with another specialist or tool to get around it.
+- Never refuse a work request from your own reading of the access list: send it to the
+  specialist. Its tools check access and answer BLOCKED when it is not allowed; only a
+  BLOCKED result is a refusal.
 - Do not call a specialist for requests outside its area."""
 
 SPECIALIST_RULES = """
@@ -171,7 +174,8 @@ def with_current_level(instructions: str):
     def render(ctx: RunContextWrapper[ChampionContext], agent: Agent[ChampionContext]) -> str:
         text = (f"{instructions}\n\nCurrent access level: {ctx.context.level.describe()}. "
                 "This current level supersedes any earlier level mentioned in the conversation. "
-                "Tools enforce the actual policy and may still block an operation.")
+                "Tools enforce the actual policy and may still block an operation. "
+                f"Working folder: {ctx.context.working_directory} (relative paths start here).")
         memory = getattr(ctx.context, "memory", None)
         if memory is not None:
             text += memory.instruction_blocks(orchestrator=getattr(agent, "name", "") == ORCHESTRATOR_NAME)
