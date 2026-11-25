@@ -181,6 +181,7 @@ def test_every_agent_section_has_its_example_file(tmp_path, demo):
     assert example_fragment_problems(examples) == ["old.yaml: no agent declares a config section old"]
 
 
+@pytest.mark.track_agents  # CR-1: every agent of the repository, track packages included
 def test_the_repository_examples_match_the_agents(tmp_path):
     make_config(tmp_path)  # loads the agents of this repository
     assert example_fragment_problems() == []
