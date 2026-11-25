@@ -12,7 +12,7 @@ Track T1 (PyDyna), branch `track/pydyna`. Built 24 Nov 2026, committed together 
 | File | What |
 | --- | --- |
 | `champion/specialists/pydyna/source_data.py` | Generator: `git clone --depth 1` of a tag (default `v<installed version>`), or `--source` checkout; keeps `.py`, `.rst`, `.md` under `src/`, `doc/`, `docs/`, `examples/` (same rule as the search); chunks of at most 1800 characters cut at `class` / `def` (Python) and headings (Markdown outside code blocks, reStructuredText); records in the old format (`class`, `method` = `<path>#chunk-<n>`, `description`, `source_project`, `source_path`, `chunk_index`) plus `start_line`, `end_line`, `version`, `commit`; over 40 MB split into `-part-0001`...; never overwrites without `--force`; `MANIFEST-<project>.json` (repository, tag, commit, counts, SHA-256 per file). Standard library and `git` only. |
-| `champion/specialists/pydyna/build_index.py` | Index builder (stub until M1): one Chroma collection from the JSONL with the search's embedding model (`BAAI/bge-small-en-v1.5`); refuses an existing collection without `--replace` and the main `vector_db` folder without `--allow-main-db`; checks the count; `MANIFEST.json` in the database folder. |
+| `champion/specialists/pydyna/build_index.py` | Removed in T1.1 (25 Nov 2026): M1 builds with `champion kb build --agent pydyna --collection pydpf_core`, same model, `l2`, same `MANIFEST.json` format. Was: index builder (stub until M1): one Chroma collection from the JSONL with the search's embedding model (`BAAI/bge-small-en-v1.5`); refuses an existing collection without `--replace` and the main `vector_db` folder without `--allow-main-db`; checks the count; `MANIFEST.json` in the database folder. |
 | `records.py` | Collection `pydpf_core` (`pydpf_core_source.jsonl` or parts, ids `dpfcore:<path>#<chunk>`, metadata with `version`); PyDPF-Post may now also come in parts. |
 | `tools.py` | Tool `search_pydpf_core` (right `none`), database `pydyna.dpf_core_database_path`, default `vector_db_dpf_core` next to `pydyna.database_path`. |
 | `__init__.py` | Sub-agent `pydyna_dpf_core` (DPF-Core): `search_pydpf_core`, `lookup_dpf_api`, `find_dpf_operators`, `check_dpf_script`. DPF-Post keeps its four tools and now covers the high-level PyDPF-Post API; the group sends operators, workflows and binout work to DPF-Core. |
@@ -57,7 +57,7 @@ In the Champion worktree with the venv active (`source ~/.ansa_meta_copilot/.ven
 
    On Linux (24 Nov 2026) all three collections have no `hnsw:space` and config `{}`: Chroma's default `l2`. `build_index.py` uses `l2` by default since then; give `--space cosine` only if a database shows `cosine`.
 
-4. Build the collection into its own folder (CPU, a few minutes for 13,014 chunks):
+4. Build the collection into its own folder (CPU, a few minutes for 13,014 chunks). Done on Linux 24 Nov 2026; since T1.1 (25 Nov 2026) steps 4 and 5 are done with M1 instead: build `HF_HUB_OFFLINE=1 champion kb build --agent pydyna --collection pydpf_core` (add `--replace` only to build it again; do not rebuild the existing database), check `champion kb status --agent pydyna`, search through the tool `search_pydpf_core`. The commands below were for the removed `build_index.py` / `search.py`:
 
    ```bash
    HF_HUB_OFFLINE=1 python -m champion.specialists.pydyna.build_index --collection pydpf_core \
@@ -87,4 +87,4 @@ In the Champion worktree with the venv active (`source ~/.ansa_meta_copilot/.ven
 
 ## Not done here
 * The old `vector_db` is not written; replacing the old PyDyna and PyDPF-Post files with regenerated ones is the user's decision.
-* M1 will replace `search.py` and `build_index.py`.
+* M1 replaced `search.py` and `build_index.py` in T1.1 (docs/steps/pydyna-07-m1-integration.md).

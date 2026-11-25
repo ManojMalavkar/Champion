@@ -28,14 +28,19 @@ refused). It never runs or imports the script. Every tool has a policy entry wit
 ``none``; apart from that one file, a tool reads only Champion's own
 PyDyna knowledge base (paths from the config) or the files of the ansys-dyna-core
 package installed in Champion's Python (``lookup_api``, parsed, never imported or
-run), never the user's files, and sends nothing out. Results are JSON text with sources (keyword record
-``sources``, ``source_path`` and ``chunk_index`` for code chunks), the raw
-``distance`` and the old ``score`` (1 - distance).
+run), never the user's files, and sends nothing out. Lookups and checks return JSON text
+with sources (keyword record ``sources``, package version and source file); the four
+search tools return M1's text (id, score = 1 - distance, raw distance, source, chunk).
 
-Paths: ``pydyna.database_path`` (default ``<project>/knowledge/pydyna/vector_db``),
-``pydyna.dpf_core_database_path`` (default: ``vector_db_dpf_core`` next to it; user, 24 Nov
-2026, built by ``build_index.py``) and the folder of ``pydyna.keyword_reference_path``
-(default ``<project>/knowledge/pydyna/knowledge-base``).
+T1.1 (M1): the four search tools are built by ``champion.knowledge.tools.make_search_tool``
+on the collections declared in ``KNOWLEDGE`` (same tool names as before); M1 opens the
+databases read-only, embeds offline and checks manifests. Paths: ``pydyna.knowledge_root``
+(default ``<project>/knowledge/pydyna``) with ``vector_db`` (``lsdyna_keywords``,
+``pydyna_api``, ``pydpf_post``: the old agent's database, search only),
+``vector_db_dpf_core`` (``pydpf_core``: built by ``champion kb build --agent pydyna
+--collection pydpf_core``) and ``knowledge-base``. The old keys ``pydyna.database_path``,
+``pydyna.dpf_core_database_path`` and ``pydyna.keyword_reference_path`` still work for the
+keyword lookups; for a search they must match the root's layout.
 """
 
 from __future__ import annotations
@@ -52,18 +57,33 @@ from agents import RunContextWrapper, function_tool
 
 from champion.core.config import Config
 from champion.core.context import ChampionContext
+from champion.knowledge.registry import Document, KnowledgeCollection, KnowledgeSpec, register_knowledge
+from champion.knowledge.root import KnowledgeError, resolve_root
+from champion.knowledge.tools import make_search_tool
 from champion.policy.scope import check_path, open_no_symlinks
 from champion.policy.tool_policy import ToolRule, register
 from champion.specialists.pydyna import api_catalog, api_check, dpf_catalog
 from champion.specialists.pydyna import records as rec
-from champion.specialists.pydyna.search import SearchBackend, SearchUnavailable, backend_for
 from champion.tools.guard import ToolError, run_guarded
 
-MAX_RESULTS = 20
-KEYWORD_TEXT_CHARS = 300  # as the old search_keyword
-CODE_TEXT_CHARS = 1800  # as the old search_pydyna_api / search_pydpf_post
-CODE_FETCH_FACTOR = 5  # the old database still holds tests and repository files: ask for more, keep n
-CODE_FETCH_MAX = 100
+EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+
+
+def _core_documents(kb_dir):
+    return [Document(d.id, d.text, d.metadata) for d in rec.dpf_core_documents(kb_dir)]
+
+
+KNOWLEDGE = register_knowledge(KnowledgeSpec("pydyna", (
+    KnowledgeCollection(rec.KW_COLLECTION, EMBED_MODEL),
+    KnowledgeCollection(rec.API_COLLECTION, EMBED_MODEL,
+                        keep=lambda hit: rec.keep_api_path(hit.source)),
+    KnowledgeCollection(rec.DPF_POST_COLLECTION, EMBED_MODEL,
+                        keep=lambda hit: rec.keep_code_path(hit.source)),
+    KnowledgeCollection(rec.DPF_CORE_COLLECTION, EMBED_MODEL, database="vector_db_dpf_core",
+                        documents=_core_documents, files=rec.dpf_core_files,
+                        keep=lambda hit: rec.keep_code_path(hit.source)),
+), config_section="pydyna"))
+
 MAX_SCRIPT_BYTES = 1024 * 1024
 
 for _rule in (
@@ -78,10 +98,6 @@ for _rule in (
              "Check a PyDPF script against the installed ansys-dpf-post / ansys-dpf-core API (nothing is run)"),
     ToolRule("lookup_keyword", "none", "Full record of one LS-DYNA keyword from the PyDyna knowledge base"),
     ToolRule("validate_keyword_params", "none", "Check keyword card parameters against the PyDyna knowledge base"),
-    ToolRule("search_keyword", "none", "Search LS-DYNA keywords in the PyDyna knowledge base"),
-    ToolRule("search_pydyna_api", "none", "Search the PyDyna (ansys-dyna-core) API and source"),
-    ToolRule("search_pydpf_post", "none", "Search the PyDPF-Post API, source and examples"),
-    ToolRule("search_pydpf_core", "none", "Search the PyDPF-Core API, operators, source and examples"),
 ):
     register(_rule)
 
@@ -90,7 +106,7 @@ for _rule in (
 
 def database_path(config: Config) -> Path:
     value = config.get("pydyna.database_path")
-    return Path(value) if value else Path(config.root) / "knowledge" / "pydyna" / "vector_db"
+    return Path(value) if value else resolve_root(config, "pydyna").db_dir()
 
 
 def dpf_core_database_path(config: Config) -> Path:
@@ -101,7 +117,7 @@ def dpf_core_database_path(config: Config) -> Path:
 
 def knowledge_base_path(config: Config) -> Path:
     value = config.get("pydyna.keyword_reference_path")
-    return Path(value).parent if value else Path(config.root) / "knowledge" / "pydyna" / "knowledge-base"
+    return Path(value).parent if value else resolve_root(config, "pydyna").kb_dir
 
 
 _KEYWORDS: dict[Path, tuple[tuple, dict, dict]] = {}
@@ -134,21 +150,6 @@ def keywords(config: Config) -> tuple[dict, dict]:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=1)
-
-
-def _check_n(n_results: int) -> int:
-    if isinstance(n_results, bool) or not isinstance(n_results, int) or not 1 <= n_results <= MAX_RESULTS:
-        raise ToolError(f"n_results must be a whole number from 1 to {MAX_RESULTS}")
-    return n_results
-
-
-def _query(backend: SearchBackend, collection: str, text: str, n: int, where: dict | None = None) -> list:
-    if not str(text).strip():
-        raise ToolError("query is empty")
-    try:
-        return backend.query(collection, text, n, where)
-    except SearchUnavailable as exc:
-        raise ToolError(str(exc)) from None
 
 
 # ---------------------------------------------------------------- the work (testable without the SDK)
@@ -250,57 +251,29 @@ def validate(config: Config, keyword_name: str, parameters: str) -> str:
     return _json(rec.check_params(record, values))
 
 
-def search_keywords(config: Config, backend: SearchBackend, query: str, category: str | None = None,
-                    n_results: int = 8) -> str:
-    n = _check_n(n_results)
-    where = None
-    if category:
-        category = category.strip().lower()
-        records, _ = keywords(config)
-        known = sorted({r.get("category", "") for r in records.values()} - {""})
-        if category not in known:
-            raise ToolError(f"unknown category {category}; known: {', '.join(known)}")
-        where = {"category": category}
-    hits = _query(backend, rec.KW_COLLECTION, query, n, where)
-    return _json([{"keyword": h.metadata.get("keyword", ""), "category": h.metadata.get("category", ""),
-                   "score": h.score, "distance": round(h.distance, 4),
-                   "text": h.document[:KEYWORD_TEXT_CHARS]} for h in hits])
+def keyword_category(config: Config, category: str | None) -> str | None:
+    """The category in lower case; an unknown one is an error that names the known ones (old behaviour)."""
+    if category is None or not str(category).strip():
+        return None
+    category = str(category).strip().lower()
+    records, _ = keywords(config)
+    known = sorted({r.get("category", "") for r in records.values()} - {""})
+    if category not in known:
+        raise ToolError(f"unknown category {category}; known: {', '.join(known)}")
+    return category
 
 
-def _code_hits(hits: list) -> list[dict]:
-    return [{"class": h.metadata.get("class", ""), "method": h.metadata.get("method", ""),
-             "source_path": h.metadata.get("source_path", ""), "chunk_index": h.metadata.get("chunk_index", -1),
-             "score": h.score, "distance": round(h.distance, 4), "text": h.document[:CODE_TEXT_CHARS]}
-            for h in hits]
-
-
-def _code_search(backend: SearchBackend, collection: str, query: str, n_results: int, keep) -> str:
-    """The existing database still holds tests, ``codegen/`` and repository files; they are dropped
-    here (records.py filter), so more hits are asked for and the first n kept are returned."""
-    n = _check_n(n_results)
-    hits = _query(backend, collection, query, min(CODE_FETCH_FACTOR * n, CODE_FETCH_MAX))
-    kept = [h for h in hits if keep(h.metadata.get("source_path", ""))]
-    return _json(_code_hits(kept[:n]))
-
-
-def search_api(config: Config, backend: SearchBackend, query: str, n_results: int = 8) -> str:
-    return _code_search(backend, rec.API_COLLECTION, query, n_results, rec.keep_api_path)
-
-
-def search_dpf_post(config: Config, backend: SearchBackend, query: str, n_results: int = 8) -> str:
-    return _code_search(backend, rec.DPF_POST_COLLECTION, query, n_results, rec.keep_code_path)
-
-
-def search_dpf_core(config: Config, backend: SearchBackend, query: str, n_results: int = 8) -> str:
-    return _code_search(backend, rec.DPF_CORE_COLLECTION, query, n_results, rec.keep_code_path)
-
-
-def _backend(context: ChampionContext) -> SearchBackend:
-    return backend_for(database_path(context.config))
-
-
-def _dpf_core_backend(context: ChampionContext) -> SearchBackend:
-    return backend_for(dpf_core_database_path(context.config))
+def check_search_paths(config: Config) -> None:
+    """M1 searches ``pydyna.knowledge_root``; an old path key that points elsewhere is an error, not ignored."""
+    root = resolve_root(config, "pydyna")
+    expected = {"database_path": root.db_dir(),
+                "dpf_core_database_path": root.db_dir("vector_db_dpf_core"),
+                "keyword_reference_path": root.kb_dir / rec.KW_REF_FILE}
+    for key, path in expected.items():
+        value = config.get(f"pydyna.{key}")
+        if value and Path(value) != path:
+            raise KnowledgeError(f"pydyna.{key} ({value}) does not match the M1 layout ({path}); set "
+                                 "pydyna.knowledge_root and clear the old path keys")
 
 
 # ---------------------------------------------------------------- tools
@@ -344,66 +317,6 @@ async def validate_keyword_params(ctx: RunContextWrapper[ChampionContext], keywo
     arguments = {"keyword_name": keyword_name, "parameters": parameters}
     return await run_guarded(ctx, "validate_keyword_params", arguments,
                              lambda: validate(ctx.context.config, keyword_name, parameters))
-
-
-@function_tool
-async def search_keyword(ctx: RunContextWrapper[ChampionContext], query: str, category: str | None = None,
-                         n_results: int = 8) -> str:
-    """Search LS-DYNA keywords by meaning. Use category to search only one family, for example
-    "material" for material model choice or "contact" for contact algorithm choice.
-
-    Args:
-        query: What the keyword is for, for example "piecewise linear plasticity for steel".
-        category: Optional family: material, contact, section, control, output, element, load, boundary, part, node, definition, or another prefix in lower case (airbag, ...).
-        n_results: Number of results (1-20, default 8).
-    """
-    arguments = {"query": query, "category": category, "n_results": n_results}
-    return await run_guarded(ctx, "search_keyword", arguments,
-                             lambda: search_keywords(ctx.context.config, _backend(ctx.context), query,
-                                                     category, n_results))
-
-
-@function_tool
-async def search_pydyna_api(ctx: RunContextWrapper[ChampionContext], query: str, n_results: int = 8) -> str:
-    """Search the PyDyna (ansys-dyna-core) Python API docs and source code. Results name the
-    source file and chunk.
-
-    Args:
-        query: What the code should do, for example "create a deck with a shell part".
-        n_results: Number of results (1-20, default 8).
-    """
-    arguments = {"query": query, "n_results": n_results}
-    return await run_guarded(ctx, "search_pydyna_api", arguments,
-                             lambda: search_api(ctx.context.config, _backend(ctx.context), query, n_results))
-
-
-@function_tool
-async def search_pydpf_post(ctx: RunContextWrapper[ChampionContext], query: str, n_results: int = 8) -> str:
-    """Search Ansys PyDPF-Post (post-processing of d3plot / binout results) source, docs and
-    examples. Results name the source file and chunk.
-
-    Args:
-        query: What to post-process, for example "internal energy over time from d3plot".
-        n_results: Number of results (1-20, default 8).
-    """
-    arguments = {"query": query, "n_results": n_results}
-    return await run_guarded(ctx, "search_pydpf_post", arguments,
-                             lambda: search_dpf_post(ctx.context.config, _backend(ctx.context), query, n_results))
-
-
-@function_tool
-async def search_pydpf_core(ctx: RunContextWrapper[ChampionContext], query: str, n_results: int = 8) -> str:
-    """Search Ansys PyDPF-Core (DPF operators, workflows, Model, DataSources, fields containers,
-    d3plot / binout readers) source, docs and examples. Results name the source file and chunk.
-
-    Args:
-        query: What to do with DPF, for example "read part energies from a binout with operators".
-        n_results: Number of results (1-20, default 8).
-    """
-    arguments = {"query": query, "n_results": n_results}
-    return await run_guarded(ctx, "search_pydpf_core", arguments,
-                             lambda: search_dpf_core(ctx.context.config, _dpf_core_backend(ctx.context), query,
-                                                     n_results))
 
 
 @function_tool
@@ -472,6 +385,60 @@ async def check_dpf_script(ctx: RunContextWrapper[ChampionContext], path: str | 
     return await run_guarded(ctx, "check_dpf_script", arguments,
                              lambda: script_check(ctx.context, installed_dpf_catalog(), path, code))
 
+
+# ---------------------------------------------------------------- search tools (M1, T1.1)
+
+def _search_tool(name: str, collection: str, description: str, category: bool = False):
+    """An M1 search tool; before M1 runs it: old path keys must match the root, the category is checked."""
+    tool = make_search_tool(name=name, agent="pydyna", collection=collection, description=description,
+                            filters={"category": "category"} if category else None)
+    search = tool.on_invoke_tool
+
+    async def invoke(ctx, raw: str) -> str:
+        try:
+            args = json.loads(raw or "{}")
+        except json.JSONDecodeError:
+            return await search(ctx, raw)  # M1 reports bad arguments itself
+        try:
+            config = ctx.context.config
+            check_search_paths(config)
+            if category and isinstance(args, dict):
+                args["category"] = keyword_category(config, args.get("category"))
+                raw = json.dumps(args)
+        except (KnowledgeError, ToolError) as exc:
+            message = str(exc)
+
+            def refuse():
+                raise ToolError(message)
+
+            return await run_guarded(ctx, name, args if isinstance(args, dict) else {}, refuse)  # audited
+        return await search(ctx, raw)
+
+    tool.on_invoke_tool = invoke
+    return tool
+
+
+search_keyword = _search_tool(
+    "search_keyword", rec.KW_COLLECTION,
+    "Search LS-DYNA keywords by meaning. Use category to search only one family, for example \"material\" "
+    "for material model choice or \"contact\" for contact algorithm choice (others: section, control, output, "
+    "element, load, boundary, part, node, definition, or another prefix in lower case such as airbag). "
+    "Query: what the keyword is for, for example \"piecewise linear plasticity for steel\".", category=True)
+search_pydyna_api = _search_tool(
+    "search_pydyna_api", rec.API_COLLECTION,
+    "Search the PyDyna (ansys-dyna-core) Python API docs, source code and examples. Results name the source "
+    "file and chunk; confirm names with lookup_api. Query: what the code should do, for example "
+    "\"create a deck with a shell part\".")
+search_pydpf_post = _search_tool(
+    "search_pydpf_post", rec.DPF_POST_COLLECTION,
+    "Search Ansys PyDPF-Post (post-processing of d3plot / binout results) source, docs and examples. Results "
+    "name the source file and chunk; confirm names with lookup_dpf_api. Query: what to post-process, for "
+    "example \"internal energy over time from d3plot\".")
+search_pydpf_core = _search_tool(
+    "search_pydpf_core", rec.DPF_CORE_COLLECTION,
+    "Search Ansys PyDPF-Core (DPF operators, workflows, Model, DataSources, fields containers, d3plot / binout "
+    "readers) source, docs and examples. Results name the source file and chunk; confirm pins with "
+    "lookup_dpf_api. Query: what to do with DPF, for example \"read part energies from a binout with operators\".")
 
 KEYWORD_TOOLS = (lookup_keyword, search_keyword, validate_keyword_params, lookup_api)
 CODE_TOOLS = (lookup_api, search_pydyna_api, lookup_keyword, check_pydyna_script)

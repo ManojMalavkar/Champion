@@ -1,0 +1,8 @@
+# Empty paths use knowledge/pydyna under the project root.
+# Set knowledge_root to relocate all four collections together.
+# Legacy path keys may stay only when they match that layout.
+pydyna:
+  knowledge_root: ''
+  database_path: ''
+  keyword_reference_path: ''
+  dpf_core_database_path: ''

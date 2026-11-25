@@ -8,7 +8,7 @@
   search collection ``pydpf_core`` in its own database folder, T1.3b).
 
 The tools are in ``tools.py`` (the old PyDyna_Agent tools; search through the
-track-local stub ``search.py`` until M1), the knowledge records in ``records.py``
+shared M1 knowledge layer), the knowledge records in ``records.py``
 (T1.0), the exact API records of the installed ansys-dyna-core in ``api_catalog.py``
 (T1.2a, tool ``lookup_api``), the API check of a script in ``api_check.py`` (T1.2b, tool
 ``check_pydyna_script``), the exact PyDPF records and DPF operators of the installed
@@ -18,8 +18,8 @@ ansys-dpf-post and ansys-dpf-core in ``dpf_catalog.py`` (T1.3a, tools ``lookup_d
 ``agents.pydyna.enabled: false`` switches the group off; ``agents.<member>.enabled``
 a sub-agent. Importing loads no database or model (that happens on the first search).
 
-Waits for CR-1 (docs/tracks/pydyna.md): with this group enabled, 11 core tests
-that expect only the Coder and Linux agents fail.
+CR-1 isolates core tests from track agents. T1.1 declares its own config section;
+imports register collections but never open or rebuild databases.
 """
 
 from __future__ import annotations
@@ -155,6 +155,10 @@ PYDYNA = register_specialist(SpecialistSpec(
   also when PyDPF-Post has no API for it (binout energies and forces), and checking PyDPF-Core scripts.
 Give a sub-agent the complete question. Combine their answers into one concise result for
 Champion, keep their sources, and never add facts they did not report.""",
+    config_section="pydyna",
+    config_defaults={"knowledge_root": "", "database_path": "", "keyword_reference_path": "",
+                     "dpf_core_database_path": ""},
+    config_path_keys=("knowledge_root", "database_path", "keyword_reference_path", "dpf_core_database_path"),
     members=(KEYWORD, CODE, DPF_POST, DPF_CORE),
     routing_hints=("which fields does *MAT_024 have", "which contact type for a crash box",
                    "write a PyDyna script for a shell part", "plot energies from d3plot with PyDPF-Post"),

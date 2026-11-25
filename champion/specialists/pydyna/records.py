@@ -3,8 +3,8 @@
 Reads the JSONL files in ``knowledge/pydyna/knowledge-base/`` and turns each
 record into ``(id, document, metadata)`` for the three collections of the old
 PyDyna_Agent (built there by ``sacreate.py``) and the new ``pydpf_core`` (T1.3b;
-files written by ``source_data.py``, collection built by ``build_index.py`` in
-its own database folder):
+files written by ``source_data.py``, collection built by M1's ``champion kb build``
+in its own database folder; T1.1):
 
 =================  =========================================================
 Collection         Files

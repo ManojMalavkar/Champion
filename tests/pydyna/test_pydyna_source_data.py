@@ -1,6 +1,7 @@
-"""T1.3b: knowledge source generator (source_data.py), index builder (build_index.py) and the
-DPF-Core search (search_pydpf_core). Runs on a small fake repository in tmp_path; the clone
-test uses a local Git repository (skipped without git); nothing goes to the network.
+"""T1.3b: knowledge source generator (source_data.py); T1.1: the DPF-Core collection is built by
+M1 (``champion kb build``) from these records and searched by search_pydpf_core. Runs on a
+small fake repository in tmp_path; the clone test uses a local Git repository (skipped
+without git); nothing goes to the network.
 """
 
 from __future__ import annotations
@@ -13,11 +14,9 @@ import subprocess
 import pytest
 
 from champion.core.config import load_config
-from champion.specialists.pydyna import build_index as bi
 from champion.specialists.pydyna import records as rec
 from champion.specialists.pydyna import source_data as sd
 from champion.specialists.pydyna import tools as pt
-from champion.specialists.pydyna.search import Hit
 
 CORE = sd.PROJECTS["pydpf-core"]
 
@@ -175,103 +174,72 @@ def test_command_line(tmp_path, capsys):
         sd.main(["pydyna", "pydpf-core", "--out", str(tmp_path / "kb"), "--ref", "v1"])
 
 
-# ---------------------------------------------------------------- index builder
+# ---------------------------------------------------------------- M1 build and search (T1.1)
 
-class FakeCollection:
-    def __init__(self, metadata, lose=0):
-        self.metadata, self.rows, self.lose = metadata, [], lose
+class Letters:
+    """Fake embedding model: counts of a few letters (enough to rank, no model download)."""
 
-    def add(self, ids, documents, metadatas):
-        assert len(ids) == len(documents) == len(metadatas)
-        self.rows.extend(zip(ids, documents, metadatas))
-
-    def count(self):
-        return len(self.rows) - self.lose
+    def embed(self, texts):
+        return [[float(t.lower().count(c)) + 0.01 for c in "aeioumtsl"] for t in texts]
 
 
-class FakeClient:
-    def __init__(self, existing=(), lose=0):
-        self.collections = {name: FakeCollection({}) for name in existing}
-        self.deleted, self.lose = [], lose
-
-    def get_collection(self, name):
-        if name not in self.collections:
-            raise ValueError(f"Collection {name} does not exist")
-        return self.collections[name]
-
-    def delete_collection(self, name):
-        self.deleted.append(name)
-        del self.collections[name]
-
-    def create_collection(self, name, embedding_function, metadata):
-        self.collections[name] = FakeCollection(metadata, self.lose)
-        return self.collections[name]
-
-
-def test_build_collection_adds_every_record_in_batches_and_never_replaces_silently(tmp_path):
-    sd.generate(CORE, tmp_path / "kb", ref="v0.16.3", source=make_repo(tmp_path / "repo"))
-    documents = rec.dpf_core_documents(tmp_path / "kb")
-    client = FakeClient(existing=["pydpf_post"])
-    seen = []
-    count = bi.build_collection(client, None, "pydpf_core", documents, batch=2,
-                                progress=lambda done, total: seen.append(done))
-    assert count == len(documents) and seen[-1] == len(documents) and len(seen) == -(-len(documents) // 2)
-    built = client.collections["pydpf_core"]
-    assert built.metadata == {"hnsw:space": "l2"} and [r[0] for r in built.rows] == [d.id for d in documents]
-    with pytest.raises(bi.IndexBuildError, match="--replace"):
-        bi.build_collection(client, None, "pydpf_core", documents)
-    bi.build_collection(client, None, "pydpf_core", documents, replace=True, space="cosine")
-    assert client.collections["pydpf_core"].metadata == {"hnsw:space": "cosine"}
-    assert client.deleted == ["pydpf_core"] and "pydpf_post" in client.collections  # others untouched
-    with pytest.raises(bi.IndexBuildError, match="expected"):
-        bi.build_collection(FakeClient(lose=1), None, "pydpf_core", documents)
-    with pytest.raises(bi.IndexBuildError, match="no records"):
-        bi.build_collection(FakeClient(), None, "pydpf_core", [])
-    with pytest.raises(bi.IndexBuildError, match="space"):
-        bi.build_collection(FakeClient(), None, "pydpf_core", documents, space="dot")
-
-
-def test_manifest_and_main_database_guard(tmp_path):
-    sd.generate(CORE, tmp_path / "kb", ref="v0.16.3", source=make_repo(tmp_path / "repo"))
-    db = tmp_path / "vector_db_dpf_core"
-    db.mkdir()
-    manifest = bi.write_manifest(db, "pydpf_core", 7, "BAAI/bge-small-en-v1.5", 384, "l2",
-                                 rec.dpf_core_files(tmp_path / "kb"))
-    entry = manifest["collections"]["pydpf_core"]
-    data = (tmp_path / "kb" / "pydpf_core_source.jsonl").read_bytes()
-    assert entry["count"] == 7 and entry["dimension"] == 384
-    assert entry["files"] == [{"name": "pydpf_core_source.jsonl", "bytes": len(data),
-                               "sha256": hashlib.sha256(data).hexdigest()}]
-    with pytest.raises(bi.IndexBuildError, match="main PyDyna search database"):
-        bi.check_target(tmp_path / "kb", tmp_path / "vector_db", allow_main_db=False)
-    bi.check_target(tmp_path / "kb", tmp_path / "vector_db", allow_main_db=True)
-    bi.check_target(tmp_path / "kb", db, allow_main_db=False)
-
-
-# ---------------------------------------------------------------- DPF-Core search
-
-class FakeBackend:
-    def __init__(self, hits):
-        self.hits, self.calls = hits, []
-
-    def query(self, collection, text, n_results, where=None):
-        self.calls.append((collection, n_results))
-        return self.hits.get(collection, [])[:n_results]
-
-
-def test_search_pydpf_core_uses_its_own_database_and_drops_tests(tmp_path):
+def project_config(tmp_path):
     (tmp_path / "config").mkdir()
     (tmp_path / "work").mkdir()
     (tmp_path / "config" / "config.yaml").write_text(
         f"llm:\n  model_id: m\nexecution:\n  working_directory: '{tmp_path / 'work'}'\n")
-    config = load_config(tmp_path / "config" / "config.yaml", env={}, cwd=tmp_path)
-    assert pt.dpf_core_database_path(config) == pt.database_path(config).parent / "vector_db_dpf_core"
-    hits = [Hit(id="dpfcore:tests/test_a.py#0", document="test", distance=0.1,
-                metadata={"source_path": "tests/test_a.py"}),
-            Hit(id="dpfcore:examples/a.py#0", document="binout energies", distance=0.2,
-                metadata={"class": "PyDPF-Core source", "method": "examples/a.py#chunk-1",
-                          "source_path": "examples/a.py", "chunk_index": 0})]
-    backend = FakeBackend({"pydpf_core": hits})
-    found = json.loads(pt.search_dpf_core(config, backend, "binout energy", 1))
-    assert [h["source_path"] for h in found] == ["examples/a.py"] and found[0]["score"] == 0.8
-    assert backend.calls == [("pydpf_core", 5)]
+    return load_config(tmp_path / "config" / "config.yaml", env={}, cwd=tmp_path)
+
+
+def test_m1_builds_pydpf_core_from_the_generated_records_and_searches_it(tmp_path, monkeypatch):
+    pytest.importorskip("chromadb")
+    import asyncio
+    import importlib
+
+    from agents import RunContextWrapper
+
+    from champion.core.context import ChampionContext
+    from champion.knowledge.builder import build_collection
+    from champion.knowledge.manifest import read_manifest
+    from champion.knowledge.root import KnowledgeError
+    from champion.storage.audit import AuditLog
+
+    config = project_config(tmp_path)
+    kb = pt.knowledge_base_path(config)
+    sd.generate(CORE, kb, ref="v0.16.3", source=make_repo(tmp_path / "repo"))
+    documents = rec.dpf_core_documents(kb)
+    info = build_collection(config, "pydyna", "pydpf_core", embedder=Letters())
+    db = pt.dpf_core_database_path(config)
+    assert db == pt.database_path(config).parent / "vector_db_dpf_core"
+    assert info.count == len(documents) > 0 and info.space == "l2" and info.model == "BAAI/bge-small-en-v1.5"
+    data = (kb / "pydpf_core_source.jsonl").read_bytes()
+    entry = read_manifest(db)["pydpf_core"]
+    assert entry.count == len(documents) and entry.dimension == 9
+    assert [(f.name, f.bytes, f.sha256) for f in entry.files] == [
+        ("pydpf_core_source.jsonl", len(data), hashlib.sha256(data).hexdigest())]
+    assert not (pt.database_path(config) / "chroma.sqlite3").exists()  # the main database is not touched
+    with pytest.raises(KnowledgeError, match="--replace"):
+        build_collection(config, "pydyna", "pydpf_core", embedder=Letters())
+    with pytest.raises(KnowledgeError, match="does not say how to build it"):
+        build_collection(config, "pydyna", "lsdyna_keywords", embedder=Letters())  # search only
+
+    monkeypatch.setattr(importlib.import_module("champion.knowledge.search"), "embedder_for",
+                        lambda *args: Letters())
+    context = ChampionContext.from_config(config, level="1.1", audit=AuditLog())
+    text = asyncio.run(pt.search_pydpf_core.on_invoke_tool(RunContextWrapper(context=context),
+                                                           json.dumps({"query": "model results", "n_results": 3})))
+    assert text.startswith("pydyna/pydpf_core: ") and "ERROR" not in text
+    assert "source src/ansys/dpf/core/model.py" in text and "tests/" not in text
+
+
+def test_m1_reads_the_manifest_the_old_builder_wrote(tmp_path):
+    """The Linux vector_db_dpf_core was built by the removed build_index.py: M1 must read its MANIFEST.json."""
+    from champion.knowledge.manifest import read_manifest
+
+    (tmp_path / "MANIFEST.json").write_text(json.dumps({"collections": {"pydpf_core": {
+        "count": 13014, "model": "BAAI/bge-small-en-v1.5", "dimension": 384, "space": "l2",
+        "built_at": "2026-11-24T10:00:00+00:00",
+        "files": [{"name": "pydpf_core_source.jsonl", "bytes": 10, "sha256": "0" * 64}]}}}, indent=1))
+    entry = read_manifest(tmp_path)["pydpf_core"]
+    assert (entry.count, entry.model, entry.dimension, entry.space) == (13014, "BAAI/bge-small-en-v1.5", 384, "l2")
+    assert entry.files[0].name == "pydpf_core_source.jsonl"

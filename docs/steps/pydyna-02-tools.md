@@ -4,7 +4,7 @@ Second step of track T1 (docs/tracks/pydyna.md), built 21 Nov 2026. It ports the
 
 ## What was built
 
-* `champion/specialists/pydyna/search.py` (stub until M1): `ChromaSearch` opens the existing Chroma database (`pydyna.database_path`, default `<project>/knowledge/pydyna/vector_db`) with `BAAI/bge-small-en-v1.5` on CPU, the model the database was built with. Chroma telemetry off. chromadb and sentence-transformers are imported on the first search only; a missing database, package or collection is a clear `ERROR:` with what to set. One backend per database folder, so the model loads once. Results keep the raw `distance` and the old `score` (1 - distance).
+* `champion/specialists/pydyna/search.py` (stub until M1; removed in T1.1, 25 Nov 2026: the search tools now come from M1's `make_search_tool`, see docs/steps/pydyna-07-m1-integration.md; the `ChromaSearch` commands below were for the stub): `ChromaSearch` opens the existing Chroma database (`pydyna.database_path`, default `<project>/knowledge/pydyna/vector_db`) with `BAAI/bge-small-en-v1.5` on CPU, the model the database was built with. Chroma telemetry off. chromadb and sentence-transformers are imported on the first search only; a missing database, package or collection is a clear `ERROR:` with what to set. One backend per database folder, so the model loads once. Results keep the raw `distance` and the old `score` (1 - distance).
 * `champion/specialists/pydyna/tools.py`: 5 tools, each with a policy entry (right `none`: they read only Champion's own knowledge base from the config paths, never the user's files, and send nothing out):
 
 | Tool | Sub-agent | Old tool | Change |

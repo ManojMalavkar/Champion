@@ -18,7 +18,6 @@ from champion.policy.tool_policy import rule_for
 from champion.specialists.base import walk_specs
 from champion.specialists.pydyna import PYDYNA
 from champion.specialists.pydyna import tools as pt
-from champion.specialists.pydyna.search import ChromaSearch, Hit, set_backend
 from champion.specialists.registry import check_spec
 from champion.storage.audit import AuditLog
 from champion.tools.guard import ToolError, run_guarded
@@ -27,17 +26,6 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "knowledge-base"
 TOOL_NAMES = ["lookup_keyword", "validate_keyword_params", "search_keyword", "search_pydyna_api", "search_pydpf_post",
               "lookup_api", "check_pydyna_script", "lookup_dpf_api", "find_dpf_operators", "check_dpf_script",
               "search_pydpf_core"]
-
-
-class FakeBackend:
-    def __init__(self, hits):
-        self.hits, self.calls = hits, []
-
-    def query(self, collection, text, n_results, where=None):
-        self.calls.append((collection, text, n_results, where))
-        rows = [h for h in self.hits.get(collection, [])
-                if not where or all(h.metadata.get(k) == v for k, v in where.items())]
-        return rows[:n_results]
 
 
 @pytest.fixture
@@ -52,8 +40,31 @@ def project(tmp_path):
     return config, kb
 
 
-def hit(collection_id, document, distance, **metadata):
-    return Hit(id=collection_id, document=document, metadata=metadata, distance=distance)
+def fake_m1(monkeypatch, hits):
+    """M1 search with a fake model and store; ``hits``: collection -> [(id, text, metadata, distance)]."""
+    import importlib
+
+    from champion.knowledge.store import Hit as SharedHit
+    shared = importlib.import_module("champion.knowledge.search")
+    calls = []
+
+    class Embedder:
+        def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    class Store:
+        def query(self, name, vector, count, filters):
+            calls.append((name, count, filters))
+            return [SharedHit(*row) for row in hits.get(name, [])][:count]
+
+    monkeypatch.setattr(shared, "embedder_for", lambda *args: Embedder())
+    monkeypatch.setattr(shared, "store_for", lambda path, verify: Store())
+    return calls
+
+
+def call(config, tool, **args):
+    context = ChampionContext.from_config(config, level="1.1", audit=AuditLog())
+    return asyncio.run(tool.on_invoke_tool(RunContextWrapper(context=context), json.dumps(args)))
 
 
 def test_pydyna_group_has_four_sub_agents_and_every_tool_a_policy_entry():
@@ -135,137 +146,177 @@ def test_validate_keyword_params_checks_types_and_json(project):
         pt.validate(config, "*NOPE", "{}")
 
 
-def test_search_keyword_category_filter_returns_only_that_family(project):
+def test_search_keyword_category_is_normalised_and_an_unknown_one_names_the_known_ones(project, monkeypatch):
     config, _ = project
-    backend = FakeBackend({"lsdyna_keywords": [
-        hit("kw_1", "*SECTION_SHELL section shell", 0.20, keyword="*SECTION_SHELL", category="section"),
-        hit("kw_2", "*MAT_024 material plasticity", 0.25, keyword="*MAT_024", category="material"),
-        hit("kw_3", "*CONTROL_TERMINATION control", 0.30, keyword="*CONTROL_TERMINATION", category="control"),
-    ]})
-    rows = json.loads(pt.search_keywords(config, backend, "steel plasticity", category="Material"))
-    assert backend.calls[-1] == ("lsdyna_keywords", "steel plasticity", 8, {"category": "material"})
-    assert [r["keyword"] for r in rows] == ["*MAT_024"] and {r["category"] for r in rows} == {"material"}
-    assert rows[0]["distance"] == 0.25 and rows[0]["score"] == 0.75
-    everything = json.loads(pt.search_keywords(config, backend, "anything", n_results=2))
-    assert backend.calls[-1][3] is None and len(everything) == 2
+    calls = fake_m1(monkeypatch, {"lsdyna_keywords": [
+        ("kw:*MAT_024", "*MAT_024 material plasticity", {"keyword": "*MAT_024", "category": "material"}, 0.25)]})
+    text = call(config, pt.search_keyword, query="steel plasticity", n_results=8, category=" Material ")
+    assert calls == [("lsdyna_keywords", 8, {"category": "material"})]
+    assert "*MAT_024" in text and "score 0.75" in text
+    error = call(config, pt.search_keyword, query="x", n_results=8, category="materials")
+    assert error.startswith("ERROR: unknown category materials; known: control, material, output, section")
+    assert len(calls) == 1  # refused before the search
+    call(config, pt.search_keyword, query="anything", n_results=2, category=None)
+    assert calls[-1][0] == "lsdyna_keywords" and not calls[-1][2]  # no category: no filter
 
 
-def test_search_keyword_rejects_unknown_category_and_bad_counts(project):
+def test_search_pydyna_api_drops_tests_and_codegen_of_the_old_database(project, monkeypatch):
     config, _ = project
-    backend = FakeBackend({})
-    with pytest.raises(ToolError, match="unknown category materials; known: control, material, output, section"):
-        pt.search_keywords(config, backend, "x", category="materials")
-    for bad in (0, 21, True):
-        with pytest.raises(ToolError, match="1 to 20"):
-            pt.search_keywords(config, backend, "x", n_results=bad)
-    with pytest.raises(ToolError, match="query is empty"):
-        pt.search_keywords(config, backend, "  ")
-    assert backend.calls == []
+    fake_m1(monkeypatch, {"pydyna_api": [
+        ("a0", "test deck", {"source_path": "tests/test_deck.py", "chunk_index": 0}, 0.1),
+        ("a1", "manifest", {"source_path": "codegen/manifest.json", "chunk_index": 0}, 0.2),
+        ("a2", "docs", {"class": "DynaBase", "method": "__init__", "source_path": "", "chunk_index": -1}, 0.3),
+        ("a3", "deck", {"source_path": "src/ansys/dyna/core/deck.py", "chunk_index": 1}, 0.4),
+        ("a4", "example", {"source_path": "examples/shell.py", "chunk_index": 0}, 0.5)]})
+    text = call(config, pt.search_pydyna_api, query="deck", n_results=2)
+    assert "2 result(s)" in text and "id a0" not in text and "id a1" not in text and "id a4" not in text
+    assert text.index("id a2") < text.index("id a3")  # docs records without a file are kept
+    assert "source src/ansys/dyna/core/deck.py chunk 1" in text
 
 
-def test_search_pydyna_api_shows_source_and_chunk(project):
+def test_search_pydpf_post_drops_repository_files_of_the_old_database(project, monkeypatch):
     config, _ = project
-    backend = FakeBackend({"pydyna_api": [
-        hit("api_9", "PyDyna source.deck.py#chunk-1\nSource: src/deck.py\n" + "x" * 3000, 0.4,
-            **{"class": "PyDyna source", "method": "deck.py#chunk-1", "source_path": "src/deck.py",
-               "chunk_index": 0})]})
-    rows = json.loads(pt.search_api(config, backend, "deck", n_results=3))
-    assert backend.calls == [("pydyna_api", "deck", 15, None)]  # asks for 5 x n, keeps n
-    assert rows[0]["source_path"] == "src/deck.py" and rows[0]["chunk_index"] == 0
-    assert len(rows[0]["text"]) == pt.CODE_TEXT_CHARS
+    fake_m1(monkeypatch, {"pydpf_post": [
+        ("d0", "pre-commit", {"source_path": ".pre-commit-config.yaml", "chunk_index": 0}, 0.1),
+        ("d1", "conduct", {"source_path": "CODE_OF_CONDUCT.md", "chunk_index": 0}, 0.2),
+        ("d1b", "test", {"source_path": "tests/test_simulation.py", "chunk_index": 0}, 0.25),
+        ("d2", "energy", {"source_path": "examples/01-energy.py", "chunk_index": 0}, 0.3),
+        ("d3", "simulation", {"source_path": "src/ansys/dpf/post/simulation.py", "chunk_index": 2}, 0.4),
+        ("d4", "more", {"source_path": "doc/source/index.rst", "chunk_index": 0}, 0.5)]})
+    text = call(config, pt.search_pydpf_post, query="energy", n_results=2)
+    assert "2 result(s)" in text and text.index("id d2") < text.index("id d3")
+    assert all(f"id {name}\n" not in text and f"id {name} " not in text for name in ("d0", "d1", "d1b", "d4"))
 
 
-def test_search_pydyna_api_drops_tests_and_codegen_of_the_old_database(project):
+def test_search_without_database_says_how_to_build(project):
+    pytest.importorskip("chromadb")
+    pytest.importorskip("sentence_transformers")  # without them M1 names the missing packages first
     config, _ = project
-    backend = FakeBackend({"pydyna_api": [
-        hit("a0", "test deck", 0.1, source_path="tests/test_deck.py", chunk_index=0),
-        hit("a1", "manifest", 0.2, source_path="codegen/manifest.json", chunk_index=0),
-        hit("a2", "docs", 0.3, **{"class": "DynaBase", "method": "__init__", "source_path": "", "chunk_index": -1}),
-        hit("a3", "deck", 0.4, source_path="src/ansys/dyna/core/deck.py", chunk_index=1),
-        hit("a4", "example", 0.5, source_path="examples/shell.py", chunk_index=0),
-    ]})
-    rows = json.loads(pt.search_api(config, backend, "deck", n_results=2))
-    assert [(r["method"], r["source_path"]) for r in rows] == [("__init__", ""), ("", "src/ansys/dyna/core/deck.py")]
+    text = call(config, pt.search_pydpf_core, query="energy", n_results=1)
+    assert text.startswith("ERROR:") and "no database at" in text and "vector_db_dpf_core" in text
+    assert "champion kb build" in text
 
 
-def test_search_pydpf_post_drops_repository_files_of_the_old_database(project):
+def test_tools_run_through_the_guard_even_without_read_access(project, monkeypatch):
     config, _ = project
-    backend = FakeBackend({"pydpf_post": [
-        hit("d0", "pre-commit", 0.1, source_path=".pre-commit-config.yaml", chunk_index=0),
-        hit("d1", "conduct", 0.2, source_path="CODE_OF_CONDUCT.md", chunk_index=0),
-        hit("d1b", "test", 0.25, source_path="tests/test_simulation.py", chunk_index=0),
-        hit("d2", "energy", 0.3, source_path="examples/01-energy.py", chunk_index=0),
-        hit("d3", "simulation", 0.4, source_path="src/ansys/dpf/post/simulation.py", chunk_index=2),
-        hit("d4", "more", 0.5, source_path="doc/source/index.rst", chunk_index=0),
-    ]})
-    rows = json.loads(pt.search_dpf_post(config, backend, "energy", n_results=2))
-    assert backend.calls == [("pydpf_post", "energy", 10, None)]  # asks for 5 x n, keeps n
-    assert [r["source_path"] for r in rows] == ["examples/01-energy.py", "src/ansys/dpf/post/simulation.py"]
-
-
-def test_search_without_database_says_what_to_set(project):
-    config, _ = project
-    backend = ChromaSearch(pt.database_path(config))
-    with pytest.raises(ToolError, match="no PyDyna database at .*pydyna.database_path"):
-        pt.search_api(config, backend, "deck")
-
-
-def test_tools_run_through_the_guard_and_are_audited_even_without_read_access(project):
-    config, _ = project
+    fake_m1(monkeypatch, {"lsdyna_keywords": [
+        ("kw:*MAT_024", "*MAT_024 material", {"keyword": "*MAT_024", "category": "material"}, 0.25)]})
+    assert "*MAT_024" in call(config, pt.search_keyword, query="steel", n_results=1, category="material")
     context = ChampionContext.from_config(config, level="1.1", audit=AuditLog())
-    set_backend(pt.database_path(config), FakeBackend({"lsdyna_keywords": [
-        hit("kw_2", "*MAT_024 material", 0.25, keyword="*MAT_024", category="material")]}))
-    try:
-        wrapper = RunContextWrapper(context=context)
-        text = asyncio.run(run_guarded(wrapper, "search_keyword", {"query": "steel"},
-                                       lambda: pt.search_keywords(config, pt._backend(context), "steel",
-                                                                  "material")))
-        assert json.loads(text)[0]["keyword"] == "*MAT_024"
-        error = asyncio.run(run_guarded(wrapper, "lookup_keyword", {"keyword_name": "*NOPE"},
-                                        lambda: pt.lookup(config, "*NOPE")))
-        assert error.startswith("ERROR: keyword *NOPE is not in the PyDyna knowledge base")
-    finally:
-        set_backend(pt.database_path(config), None)
+    error = asyncio.run(run_guarded(RunContextWrapper(context=context), "lookup_keyword", {"keyword_name": "*NOPE"},
+                                    lambda: pt.lookup(config, "*NOPE")))
+    assert error.startswith("ERROR: keyword *NOPE is not in the PyDyna knowledge base")
 
 
-def test_real_chroma_database_with_category_filter(tmp_path):
+def test_real_chroma_database_with_category_filter_through_m1(project, monkeypatch):
+    """A real Chroma database without MANIFEST.json (like the old agent's), searched read-only by M1."""
     chromadb = pytest.importorskip("chromadb")
-    from chromadb.api.types import EmbeddingFunction
+    import importlib
+
     from chromadb.config import Settings
+    shared = importlib.import_module("champion.knowledge.search")
 
-    class Letters(EmbeddingFunction):
-        """Fake embedding: counts of a few letters (enough to rank, no model)."""
+    def letters(text):  # fake embedding: counts of a few letters (enough to rank, no model)
+        return [float(text.lower().count(c)) + 0.01 for c in "aeioumtsl"]
 
-        def __init__(self):
-            pass
+    class Embedder:
+        def embed(self, texts):
+            return [letters(t) for t in texts]
 
-        def __call__(self, input):
-            return [[float(text.lower().count(c)) for c in "aeioumtsl"] for text in input]
-
-        @staticmethod
-        def name():
-            return "letters-test"
-
-        def get_config(self):
-            return {}
-
-        @staticmethod
-        def build_from_config(config):
-            return Letters()
-
-    db = tmp_path / "vector_db"
+    config, _ = project
+    db = pt.database_path(config)
+    documents = ["*MAT_024 material metal plasticity", "*MAT_020 material rigid", "*SECTION_SHELL section shell thickness"]
     client = chromadb.PersistentClient(path=str(db), settings=Settings(anonymized_telemetry=False))
-    collection = client.create_collection("lsdyna_keywords", embedding_function=Letters())
-    collection.add(ids=["kw:*MAT_024", "kw:*MAT_020", "kw:*SECTION_SHELL"],
-                   documents=["*MAT_024 material metal plasticity", "*MAT_020 material rigid",
-                              "*SECTION_SHELL section shell thickness"],
+    collection = client.create_collection("lsdyna_keywords", embedding_function=None)
+    collection.add(ids=["kw:*MAT_024", "kw:*MAT_020", "kw:*SECTION_SHELL"], documents=documents,
+                   embeddings=[letters(d) for d in documents],
                    metadatas=[{"keyword": "*MAT_024", "category": "material"},
                               {"keyword": "*MAT_020", "category": "material"},
                               {"keyword": "*SECTION_SHELL", "category": "section"}])
     del client
-    search = ChromaSearch(db, embedding=Letters())
-    hits = search.query("lsdyna_keywords", "shell thickness", 3, {"category": "material"})
-    assert {h.metadata["category"] for h in hits} == {"material"} and len(hits) == 2
-    assert all(isinstance(h.distance, float) for h in hits)
-    unfiltered = search.query("lsdyna_keywords", "shell thickness", 3)
-    assert {h.metadata["category"] for h in unfiltered} == {"material", "section"}
+    monkeypatch.setattr(shared, "embedder_for", lambda *args: Embedder())
+    filtered = call(config, pt.search_keyword, query="shell thickness", n_results=3, category="material")
+    assert "2 result(s)" in filtered and "SECTION_SHELL" not in filtered and "distance" in filtered
+    unfiltered = call(config, pt.search_keyword, query="shell thickness", n_results=3, category=None)
+    assert "3 result(s)" in unfiltered and "*SECTION_SHELL" in unfiltered
+
+
+# T1.1: test the actual M1 tools, not only the old work helpers.
+def test_m1_registers_four_existing_collections_and_core_builder(project):
+    from champion.knowledge.registry import knowledge_spec
+    config, kb = project
+    spec = knowledge_spec("pydyna")
+    assert [c.name for c in spec.collections] == ["lsdyna_keywords", "pydyna_api", "pydpf_post", "pydpf_core"]
+    assert [c.database for c in spec.collections] == ["vector_db"] * 3 + ["vector_db_dpf_core"]
+    assert all(c.model == "BAAI/bge-small-en-v1.5" and c.space == "l2" for c in spec.collections)
+    assert all(c.documents is None for c in spec.collections[:3])
+    assert spec.collection("pydpf_core").documents is pt._core_documents
+    assert config.data["pydyna"] == dict(PYDYNA.config_defaults)
+
+
+def test_m1_config_root_moves_all_paths_and_matches_example(project, tmp_path):
+    from champion.core.config import example_fragment_problems
+    config, _ = project
+    config.data["pydyna"]["knowledge_root"] = str(tmp_path / "other_knowledge")
+    assert pt.database_path(config) == tmp_path / "other_knowledge" / "vector_db"
+    assert pt.dpf_core_database_path(config) == tmp_path / "other_knowledge" / "vector_db_dpf_core"
+    assert pt.knowledge_base_path(config) == tmp_path / "other_knowledge" / "knowledge-base"
+    assert example_fragment_problems() == []
+
+
+@pytest.mark.parametrize("tool_name,collection,database", [
+    ("search_keyword", "lsdyna_keywords", "vector_db"),
+    ("search_pydyna_api", "pydyna_api", "vector_db"),
+    ("search_pydpf_post", "pydpf_post", "vector_db"),
+    ("search_pydpf_core", "pydpf_core", "vector_db_dpf_core"),
+])
+def test_live_search_tools_use_m1_filters_sources_and_guard(project, monkeypatch, tool_name, collection, database):
+    import importlib
+    from champion.knowledge.store import Hit as SharedHit
+    shared = importlib.import_module("champion.knowledge.search")
+    config, _ = project
+    calls = []
+    class Embedder:
+        def embed(self, texts):
+            assert texts == ["energy"]
+            return [[1.0, 0.0]]
+    class Store:
+        def query(self, name, vector, count, filters):
+            calls.append((name, count, filters))
+            if name == "lsdyna_keywords":
+                return [SharedHit("kw:*MAT_024", "*MAT_024 material", {"category": "material"}, 0.25)]
+            return [SharedHit("bad", "test", {"source_path": "tests/a.py"}, 0.1),
+                    SharedHit("good", "energy example", {"source_path": "examples/energy.py", "chunk_index": 0}, 0.2)]
+    def store(path, verify):
+        assert path == pt.database_path(config).parent / database
+        assert verify is True
+        return Store()
+    monkeypatch.setattr(shared, "embedder_for", lambda *args: Embedder())
+    monkeypatch.setattr(shared, "store_for", store)
+    context = ChampionContext.from_config(config, level="1.1", audit=AuditLog())
+    tool = getattr(pt, tool_name)
+    args = {"query": "energy", "n_results": 1}
+    if collection == "lsdyna_keywords":
+        args["category"] = "Material"
+    output = asyncio.run(tool.on_invoke_tool(RunContextWrapper(context=context), json.dumps(args)))
+    assert f"pydyna/{collection}: 1 result(s)" in output and "distance" in output
+    if collection == "lsdyna_keywords":
+        assert calls == [(collection, 1, {"category": "material"})]
+        assert "*MAT_024" in output
+    else:
+        assert calls == [(collection, 5, {})]
+        assert "source examples/energy.py chunk 0" in output and "id bad" not in output
+
+
+def test_m1_live_tool_rejects_outside_root_and_legacy_mismatch(project, tmp_path):
+    config, _ = project
+    context = ChampionContext.from_config(config, level="1.1", audit=AuditLog())
+    wrapper = RunContextWrapper(context=context)
+    config.data["pydyna"]["knowledge_root"] = str(tmp_path.parent / "outside")
+    result = asyncio.run(pt.search_pydpf_core.on_invoke_tool(wrapper, '{"query":"x","n_results":1}'))
+    assert result.startswith("ERROR:") and "outside the project" in result
+    config.data["pydyna"]["knowledge_root"] = ""
+    config.data["pydyna"]["database_path"] = str(tmp_path / "old_database")
+    result = asyncio.run(pt.search_pydyna_api.on_invoke_tool(wrapper, '{"query":"x","n_results":1}'))
+    assert result.startswith("ERROR:") and "clear the old path keys" in result
+
