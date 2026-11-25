@@ -135,6 +135,15 @@ def tools_for(specs: list[ProgramSpec], max_direct: int) -> list[FunctionTool]:
     return [make_program_tool(spec) for spec in specs]
 
 
+def programs_text(specs: list[ProgramSpec], max_direct: int) -> str:
+    """Line added to an agent's description (seen by the orchestrator when it routes)."""
+    shown = specs[:max_direct]
+    items = "; ".join(f"{s.tool_name}: {s.description[:160]}" for s in shown)
+    if len(specs) > len(shown):
+        items += f"; and {len(specs) - len(shown)} more ({LIST_TOOL})"
+    return f"It also runs the user's trusted programs - send it these tasks: {items}"
+
+
 def attach_program_tools(config: Any, specialists: Iterable[SpecialistSpec], working_directory: Path
                          ) -> tuple[list[SpecialistSpec], list[str]]:
     """Offered specialists with their trusted programs added, and the problems to show."""
@@ -164,6 +173,10 @@ def attach_program_tools(config: Any, specialists: Iterable[SpecialistSpec], wor
         tools = extra.get(spec.name, [])
         if not tools and members == spec.members:
             return spec
-        return dataclasses.replace(spec, tools=(*spec.tools, *tools), members=members)
+        # the orchestrator routes by the description: name the programs there, or it never asks this agent
+        description = spec.description
+        if tools:
+            description = f"{spec.description.rstrip()}\n{programs_text(by_agent[spec.name], max_direct)}"
+        return dataclasses.replace(spec, tools=(*spec.tools, *tools), members=members, description=description)
 
     return [add(spec) for spec in specialists], problems

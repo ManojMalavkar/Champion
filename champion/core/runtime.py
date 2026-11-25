@@ -161,11 +161,17 @@ class ChampionRuntime:
 
     def _attach_programs(self, config: Config) -> None:
         """M2: add the user's trusted programs to their agents; a failure here never stops Champion."""
+        self.program_tools: list[str] = []  # "program_x (agent)", shown at chat start
         try:
             from champion.programs.tools import attach_program_tools
 
+            from champion.specialists.base import walk_specs
+
             self.specialists, problems = attach_program_tools(config, self.specialists,
                                                               self.context.working_directory)
+            self.program_tools = [f"{name} ({item.name})" for spec in self.specialists
+                                  for item in walk_specs(spec) for name in item.tool_names
+                                  if name.startswith(("program_", "programs_"))]
         except Exception as exc:  # noqa: BLE001 - reported at start, Champion still runs
             problems = [f"programs not offered: {type(exc).__name__}: {exc}"]
         self.specialist_problems = [*self.specialist_problems, *problems]

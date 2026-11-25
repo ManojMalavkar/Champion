@@ -68,12 +68,14 @@ Parameter types: `path` (read or edit access, checked exactly like the file tool
 
 `champion programs list` refused the default folder: `programs folder /home/<user>/.champion/programs: /home is a symbolic link`. On that machine `/home` is a link, and `~` was expanded with the plain `HOME`. Fix: `programs.folder` and `programs.trust_file` expand `~` to the real home (links resolved), as the memory paths have done since 4e.8. A path written by hand through a link is still refused, and the error now names the real path to use. Test `test_home_behind_a_link_uses_the_real_home` fails on `ca0d8f3` and passes with the fix; 454 tests pass.
 
+Second finding (same day): in `champion chat` the orchestrator answered "Summarise the run in runs/a" itself and never called `linux_coder`. The programs were added to the agent as tools, but its description, which the orchestrator routes by, did not name them, and the start line did not list them. Fix: an agent with programs gets a description line naming each program tool (`It also runs the user's trusted programs - send it these tasks: program_run_summary: ...`), and the start line prints `Programs: program_run_summary (linux_coder), ...`. Test `test_orchestrator_and_start_line_know_the_programs` fails on `1a4a728`; 455 tests pass.
+
 ## Verify (Linux, after pull)
 
 ```bash
 cd <main worktree>
 git pull
-python -m pytest -q            # 454 passed with chromadb installed (445 passed, 9 skipped without)
+python -m pytest -q            # 455 passed with chromadb installed (446 passed, 9 skipped without)
 mkdir -p ~/.champion/programs && chmod 700 ~/.champion/programs
 cp examples/programs/* ~/.champion/programs/ && chmod 755 ~/.champion/programs/*.sh
 champion programs list         # two untrusted programs

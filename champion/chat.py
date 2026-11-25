@@ -241,6 +241,9 @@ async def chat_loop(runtime: ChampionRuntime, read_line: Callable[[str], str] = 
                             for name in runtime.context.specialists) or "none yet"
     write(f"Champion {__version__} - model {runtime.config.get('llm.model_id')}, "
           f"access level {runtime.context.level.describe()}, specialists: {specialists}. /help for commands.")
+    program_tools = getattr(runtime, "program_tools", [])
+    if program_tools:
+        write(f"Programs: {', '.join(program_tools)}.")
     if not runtime.config.get("llm.verify_tls"):
         write("Note: TLS certificate check is off (llm.verify_tls: false); the model server is not verified.")
     for problem in getattr(runtime, "specialist_problems", []):

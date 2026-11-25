@@ -349,6 +349,26 @@ def test_attach_adds_trusted_programs_to_their_agent(tmp_path):
     assert "arg=hello" in out
 
 
+def test_orchestrator_and_start_line_know_the_programs(tmp_path):
+    """Linux check 25 Nov 2026: the orchestrator answered itself; the agent description never named the programs."""
+    from fake_model import FakeModel
+
+    from champion.agents.orchestrator import orchestrator_instructions
+    from champion.chat import chat_loop
+    from champion.core.runtime import ChampionRuntime
+
+    config, work, _ = trusted(tmp_path, [entry()])
+    runtime = ChampionRuntime(config, model=FakeModel([]), audit=AuditLog(), level="1.2")
+    assert runtime.program_tools == ["program_echo_args (linux_coder)"]
+    linux = next(spec for spec in runtime.specialists if spec.name == "linux_coder")
+    assert "program_echo_args" in linux.tool_names
+    assert "trusted programs - send it these tasks: program_echo_args: prints its arguments" in linux.description
+    assert "program_echo_args: prints its arguments" in orchestrator_instructions(runtime.specialists)
+    out = []
+    asyncio.run(chat_loop(runtime, lambda prompt: "/quit", out.append))
+    assert "Programs: program_echo_args (linux_coder)." in out
+
+
 def test_many_programs_use_list_and_run(tmp_path):
     entries = [entry(), entry("second")]
     config, work, _ = trusted(tmp_path, entries, extra={"programs": {
