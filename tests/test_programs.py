@@ -379,8 +379,10 @@ def test_orchestrator_does_not_refuse_from_its_own_reading(tmp_path):
     from champion.agents.orchestrator import orchestrator_instructions, with_current_level
 
     config, work, _ = trusted(tmp_path, [entry()])
-    assert "Never refuse a work request from your own reading of the access list" in \
-        orchestrator_instructions([LINUX_CODER])
+    text = orchestrator_instructions([LINUX_CODER])
+    assert "Never refuse a work request from your own reading of the access list" in text
+    # Linux check: after a decline it asked "reply yes to proceed" in text and sent "yes" to the agent
+    assert 'Never ask the user to confirm in text ("reply yes to proceed")' in text
     context = ctx(config)
     text = with_current_level("Base.")(RunContextWrapper(context), types.SimpleNamespace(name="x"))
     assert f"Working folder: {context.working_directory} (relative paths start here)." in text
