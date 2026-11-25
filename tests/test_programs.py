@@ -362,7 +362,10 @@ def test_orchestrator_and_start_line_know_the_programs(tmp_path):
     assert runtime.program_tools == ["program_echo_args (linux_coder)"]
     linux = next(spec for spec in runtime.specialists if spec.name == "linux_coder")
     assert "program_echo_args" in linux.tool_names
-    assert "trusted programs - send it these tasks: program_echo_args: prints its arguments" in linux.description
+    assert "send it these tasks: program_echo_args: prints its arguments" in linux.description
+    # Linux check: the agent asked "shall I go ahead?" in text instead of calling the tool
+    assert "Do not ask the user for confirmation in your answer first" in linux.instructions
+    assert linux.instructions.startswith(LINUX_CODER.instructions.rstrip())
     assert "program_echo_args: prints its arguments" in orchestrator_instructions(runtime.specialists)
     out = []
     asyncio.run(chat_loop(runtime, lambda prompt: "/quit", out.append))

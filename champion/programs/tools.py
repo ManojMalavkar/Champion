@@ -135,13 +135,23 @@ def tools_for(specs: list[ProgramSpec], max_direct: int) -> list[FunctionTool]:
     return [make_program_tool(spec) for spec in specs]
 
 
+PROGRAM_RULES = """
+
+Trusted programs (the program_* tools): the user declared and trusted these programs, so they
+are the exception to "no scripts". When a task matches a program's description, call its tool
+directly with the typed arguments. Do not ask the user for confirmation in your answer first:
+Champion itself asks the user before every delete or remote program, and the tool answers
+BLOCKED when the access level does not allow it (then report the BLOCKED reason). Report what
+the program printed. What a program changes is listed in /changes but cannot be undone; say so."""
+
+
 def programs_text(specs: list[ProgramSpec], max_direct: int) -> str:
     """Line added to an agent's description (seen by the orchestrator when it routes)."""
     shown = specs[:max_direct]
     items = "; ".join(f"{s.tool_name}: {s.description[:160]}" for s in shown)
     if len(specs) > len(shown):
         items += f"; and {len(specs) - len(shown)} more ({LIST_TOOL})"
-    return f"It also runs the user's trusted programs - send it these tasks: {items}"
+    return f"It also runs the user's trusted programs (allowed, unlike other scripts) - send it these tasks: {items}"
 
 
 def attach_program_tools(config: Any, specialists: Iterable[SpecialistSpec], working_directory: Path
@@ -174,9 +184,11 @@ def attach_program_tools(config: Any, specialists: Iterable[SpecialistSpec], wor
         if not tools and members == spec.members:
             return spec
         # the orchestrator routes by the description: name the programs there, or it never asks this agent
-        description = spec.description
+        description, instructions = spec.description, spec.instructions
         if tools:
             description = f"{spec.description.rstrip()}\n{programs_text(by_agent[spec.name], max_direct)}"
-        return dataclasses.replace(spec, tools=(*spec.tools, *tools), members=members, description=description)
+            instructions = spec.instructions.rstrip() + PROGRAM_RULES  # call the tool; Champion asks the user
+        return dataclasses.replace(spec, tools=(*spec.tools, *tools), members=members, description=description,
+                                   instructions=instructions)
 
     return [add(spec) for spec in specialists], problems
