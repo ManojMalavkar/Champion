@@ -37,6 +37,7 @@ WARNINGS = {
     "delete": "Deleted files cannot be restored by Champion (/undo does not cover deletes).",
     "process_control": "This signals or stops processes.",
     "check": "This runs project code (for example tests) with your rights; time, CPU and memory are limited.",
+    "remote": "This acts on another system (for example a job queue); Champion cannot undo it.",  # M2
 }
 
 

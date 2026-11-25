@@ -220,6 +220,12 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 * **Evidence:** 377 tests (28 new), all pass on Databricks serverless. Every database file has the same SHA-256 after search and lookup; a file added while open stops the store. On a database built the old agent's way, M1 returns the same ids and distances as a direct Chroma query. The offline loader refuses an uncached model with the download command, and its vectors equal Chroma's own (difference 0.0).
 * **Lessons:** check the read-only claim on the real library before building on it: one probe (no file changes on query) decided the design.
 
+### Step M2 - Program tools
+
+* **What:** agents can run external programs and scripts as checked tools (`program_<name>`), declared in the user's `~/.champion/programs/programs.yaml` or by a track in code. Each entry gives the program, class (`read`, `edit`, `delete`, `remote`), agent, typed arguments, working folder, environment (`env_set`, `env_pass`, `path_prepend` instead of `module load`), time limit and approval rule. The user trusts each program once (`champion programs trust NAME`); the program file, the interpreter actually used (requested and resolved path, SHA-256, system interpreters included) and a digest of the whole entry are pinned, checked when the chat starts and again just before every run. Remote is its own permission (approval every run); local edit access is needed only for paths a program may change. Duplicate names are refused, never overridden. Nothing runs through a shell. Program changes are audited but cannot be undone until the staging of M3, and every result says so. Step 4c is done by M2.
+* **Evidence:** 453 tests (74 new), all pass on Databricks serverless. Trust, race and path tests: interpreter changed during the approval prompt -> not run; an interpreter link moved to an identical copy -> changed; program replaced by a link after trust -> refused; a changed entry field (each field tested) -> changed. End to end with `examples/programs/`: trust from the CLI, a read run, and an approved delete run that removed only the result files and was listed in `/changes`.
+* **Lessons:** on this Linux image `/bin` is a link to `/usr/bin`, so pinning "the path on the `#!` line" pins nothing stable; the real file behind the links is what has to be hashed and compared.
+
 ## 7. Metrics
 
 | Step | Tests (total) | Main new modules | Commit |
@@ -237,6 +243,8 @@ Key idea: **specialists are tools, not handoffs.** The orchestrator calls `pydyn
 | 4d.8 | 252 | `stop_after_decline` in `agents/orchestrator.py`; `ChampionContext.declined`; `protect_file` in `policy/sensitive.py`; `pending_terminal_input` in `chat.py`; `coder.check_env` | Step 4d.8 (`bc56a61`) |
 | M0 | 269 | Discovery in `specialists/registry.py`; `register_config_section`, `example_fragment_problems` in `core/config.py`; `members` in `specialists/base.py`; groups in `agents/orchestrator.py`; `tests/conftest.py`; `docs/tracks/` | Step M0 |
 | M1 | 377 | `knowledge/root.py`, `manifest.py`, `store.py`, `embedding.py`, `registry.py`, `search.py`, `tools.py`, `builder.py`, `status.py`; `files`/`knowledge` sections; `champion kb` | Step M1 |
+| M2 | 453 | `programs/spec.py`, `manifest.py`, `runner.py`, `tools.py`; `programs` section; `champion programs`; `run_steps(executables, path_prepend)` | Step M2 |
+| M2 Linux fixes | 456 | `~` = real home for program paths; agent description and start line name the programs; program agents call the tool; orchestrator never refuses or asks "reply yes" by itself (Linux check passed 25 Nov 2026) | `1a4a728`..`89419b3` |
 
 ## 8. Demo script (current state)
 
@@ -275,7 +283,8 @@ This section grows with each step.
 * `llm.model_ids` are checked by `doctor` but not yet used as runtime fallback; the `claude-opus-*` models need permission.
 * Shell commands open their paths after Champion's check (time-of-check race); `cp -r` into an existing folder can follow links already inside it; shell writes are listed but have no undo. A sandbox backend later removes the first two.
 * Per-folder access has no separate delete right (delete = edit + approval every time) and the GUI table comes with the TUI (step 6).
-* Next: existing shell scripts as checked tools (4c), `file_transform` (deferred), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
+* Changes made by external programs (M2) are audited but have no undo; the staging of M3 adds it. Champion checks the arguments and paths it passes, not what a trusted program opens by itself (there is no sandbox yet); trust is the user's review of that code.
+* Next: `file_transform` (deferred), the PyDyna knowledge specialist (5), the TUI (6) and large-model reading (7).
 * After the demo: skills, MCP, model editing, code execution with review, `champion kb`, ANSA/META and PRIMER specialists, a sandboxed execution backend.
 
 ## 11. Likely questions

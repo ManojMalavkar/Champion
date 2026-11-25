@@ -1,6 +1,6 @@
 # M1 - Shared knowledge layer
 
-Built 24 Nov 2026 on `main` (commit "Step M1", not pushed). 377 tests pass on Databricks serverless (349 before, 28 new in `tests/test_knowledge.py`).
+Built and pushed 24 Nov 2026 on `main` (`6e369af`, "Step M1"). 377 tests pass on Databricks serverless (349 before, 28 new in `tests/test_knowledge.py`).
 
 ## Why
 

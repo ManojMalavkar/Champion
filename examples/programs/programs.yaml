@@ -1,0 +1,27 @@
+# Champion example manifest (M2). Copy this folder to ~/.champion/programs/ (mode 700,
+# files not writable by group or others), then trust each program once:
+#   champion programs list
+#   champion programs trust run_summary
+#   champion programs trust clean_run_dir
+# A program is offered to its agent only while its file and this entry are unchanged.
+programs:
+  - name: run_summary
+    program: run_summary.sh
+    description: Summary of an LS-DYNA run folder (files, input decks, d3plot count, termination status)
+    agent: linux_coder
+    class: read
+    args: ["--folder", "{run_dir}", "{verbose}"]
+    params:
+      run_dir: {type: path, access: read, required: true, description: the run folder}
+      verbose: {type: bool, flag: "-v", description: also list the files}
+    timeout_seconds: 60
+
+  - name: clean_run_dir
+    program: clean_run_dir.sh
+    description: Delete the result files (d3plot*, d3dump*, binout*) of one LS-DYNA run folder; keeps decks and text output
+    agent: linux_coder
+    class: delete                    # you approve every run
+    args: ["{run_dir}"]
+    params:
+      run_dir: {type: path, access: edit, required: true, description: the run folder to clean}
+    timeout_seconds: 120
