@@ -625,7 +625,7 @@ scripts:
 - Edit a script, restart: banner warns "changed, not trusted" and the tool is not offered.
 - Then with the user's own scripts: add their entries to `scripts.yaml`, trust them, ask in plain language.
 
-- [ ] Step 4c not started
+- [x] Step 4c done by M2 (program tools, generalised to any trusted program; see "M2 status" below). The `scripts` names above became `programs` (`programs.yaml`, `champion programs`, `program_<name>`).
 
 ### Step 4d - Flexible editing (create, insert, delete, several edits, change sets)
 Scope (decided with the user, 19 Nov 2026): step 4d is the flexible-editing plan from commit `745f060` ("Step 4d plan: Flexible Editing for Coder Agents" below). The former `file_transform` plan is kept at the start of this section as a deferred item and is not built in step 4d.
@@ -1823,6 +1823,43 @@ Decisions (user, 24 Nov 2026): (1) Chroma opened in place read-only, stop if any
 - [x] Tests: 28 new in `tests/test_knowledge.py` (fake embedder; Chroma tests skip without chromadb); 377 pass on Databricks serverless. A real old-style database (no manifest, default space) gives the same ids and distances through M1 as a direct Chroma query, and no file changes.
 - [ ] PyDyna track: replace its `search.py` stub with `KnowledgeSpec` + tool factory, declare its `pydyna` section (`database_path` etc. no longer in core) after merging `main`.
 - [ ] Local check (user, Linux machine): `pytest -q` 377 passed; `champion kb status --agent pydyna` on the real databases (after the track change); `champion chat` start line unchanged.
+
+#### M2 status: program tools (built 25 Nov 2026, committed on `main`, push after review)
+Decisions (user, 24-25 Nov 2026), replacing the defaults below where they differ:
+1. Track programs must be trusted (`champion programs trust NAME`), same rules as manifest programs.
+2. Remote is its own permission, separate from local edit access: every remote run needs approval; local edit access is needed only for the paths a program may change (path parameters with `access: edit`). `edit`/`delete` programs must declare those paths.
+3. Every interpreter actually used is hashed, also system ones in `/usr/bin` and ones found through PATH (`path_prepend`, `/usr/bin`, `/bin`); trust stores the requested and the resolved path and the SHA-256; any interpreter change needs a new trust.
+4. Direct-tool threshold 15, configurable (`programs.max_direct_tools`).
+5. Module environments as fixed `env_set`, `env_pass` and `path_prepend`, no shell (`module load` cannot run).
+* Trusted entry digest covers class, agent, typed arguments, paths, environment, timeout, working folder, approval policy (every field, test per field). Duplicate names fail (manifest twice, manifest + track, second `register_program`, duplicate YAML keys). Program changes are audited but not undoable until M3 staging; results, approval prompts, tool descriptions and `trust` output say so.
+
+- [x] M2.1-M2.8 built (boxes below).
+- [x] Tests: 74 in `tests/test_programs.py` (trust, race and path tests included); 453 pass on Databricks serverless (chromadb installed, no skips). End to end with `examples/programs/`: list, trust, check, a read run and an approved delete run.
+- [ ] Local check (user, Linux machine): `pytest -q` 453 passed (444 + 9 skipped without chromadb); copy `examples/programs/` to `~/.champion/programs/`, trust both, `champion chat --level 1.2`: "Summarise the run in runs/a", "Clean the result files in runs/a" (approval, `/changes`).
+- [ ] T2 HPC track: declare `mjob` and queue tools with `register_program` (class `remote`), path from the track's config section.
+
+#### M2 plan: program tools (started 24 Nov 2026)
+User, 24 Nov 2026: "start m2"; the HPC agent is built separately on its track (T2), so M2 on `main` is the generic framework only, no `mjob` port. M2 generalises step 4c (scripts) to any trusted program: a script with an interpreter line, a binary (for example `mjob`), or a script for a declared interpreter. Step 4c is done by M2.
+
+Defaults chosen by the assistant (confirmed or replaced by the user's decisions in "M2 status" above):
+* Two sources, same rules: the user's manifest `programs.yaml` in `programs.folder` (default `~/.champion/programs/`), and programs a track package declares in code (`register_program`). A track gives the shape (arguments, class); the program path can come from the track's config section (`program: config:<section>.<key>`), because it is different on each machine.
+* Every program must be trusted by the user (`champion programs trust NAME`), also track programs: SHA-256 of the program file, of a declared interpreter and of the entry, kept in `programs.trust_file` (default `~/.champion/programs.trust`, mode 600). Changed or untrusted -> not offered (shown at chat start and in `champion doctor`); hash checked again just before each run.
+* Classes: `read` (any level that reads), `edit` (needs edit; declared `writes` go to `/changes`, no undo), `delete` (needs edit; approval every time), `remote` (acts on another system, for example a job queue; needs edit; approval every time). `approval: always` can make `read`/`edit` ask too; nothing can make `delete`/`remote` skip it.
+* Arguments: a template of tokens, each a literal or exactly `{param}`; typed params `path` (read/edit access, checked like every file tool), `int`/`float` (min/max), `bool` (flag), `enum`, `string` (pattern, at most 200 characters). Values starting with `-` are refused unless they come from an enum; nothing is ever given to a shell.
+* Environment: clean environment plus `env_pass` (names taken from the user's environment) and `env_set` (fixed values in the entry), `path_prepend` (folders put before `/usr/bin:/bin`, for programs that need module tools). Fixed names (`PATH`, `HOME`, `LD_PRELOAD` ...) and secret-looking names are refused. `module load` itself cannot run (it is a shell function); the user writes its result into `env_set`/`path_prepend`.
+* Limits: `timeout_seconds` (at most `programs.max_timeout_seconds`, 3600), CPU = timeout, memory and file size from `execution.*` unless the entry sets lower or higher (file size at most `files.max_model_bytes`); output cap and process-group kill as in 4a.
+* Folder: program files and the manifest must be regular files without links, owned by the user or root, not group/world-writable, not inside the working folder. `.champion` is already blocked for every agent tool, so no agent can change the manifest or the trust store.
+* More than `programs.max_direct_tools` (15) programs for one agent: that agent gets `programs_list` and `program_run(name, arguments)` instead of one tool each.
+
+Sub-steps:
+- [x] M2.1 `programs` config section; executor: run a trusted program by absolute path, `path_prepend`, declared environment.
+- [x] M2.2 `champion/programs/spec.py`: `ProgramSpec`, `Param`, parsing and validation of an entry with clear errors.
+- [x] M2.3 `manifest.py`: folder and file checks, interpreter, trust store, status of every program (trusted, untrusted, changed, missing, invalid).
+- [x] M2.4 `runner.py`: argument and path checks, level and class, approval (bound to program hash and command), hash check before the run, environment, limits, change list, audit row.
+- [x] M2.5 `tools.py`: `program_<name>` tools (or `programs_list` / `program_run`), added to the named agents at chat start; problems shown at start.
+- [x] M2.6 `champion programs list|check|trust|untrust` and lines in `champion doctor`.
+- [x] M2.7 Tests `tests/test_programs.py` (4c.6 list plus remote, interpreters, binaries, track programs).
+- [x] M2.8 `examples/programs/` (manifest + `run_summary.sh` read + `clean_run_dir.sh` delete), `docs/steps/m2-program-tools.md`, PLAN, REPORT.
 
 Note on the HPC_Agent `certs/` folder (user, 20 Nov 2026): the certificate and key there are the old agent's LLM connection (GenAI gateway, mTLS). The T2 port does not use them: `hpc_agent` uses the model defined in Champion's config (`llm` section, AI Gateway) like every other agent. No certificates or keys are copied into Champion; secret files stay blocked.
 

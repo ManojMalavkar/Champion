@@ -148,6 +148,19 @@ def check_knowledge(config: Config) -> list[CheckResult]:
     return [CheckResult(line.name, line.status, line.detail) for line in knowledge_status(config)]
 
 
+def check_programs(config: Config) -> list[CheckResult]:
+    """M2: one line per declared program (same as ``champion programs list``); never FAIL."""
+    from champion.programs.manifest import TRUSTED, program_states
+    from champion.specialists.registry import load_builtin_specialists
+
+    load_builtin_specialists()
+    states = program_states(config, Path(config.get("execution.working_directory")))
+    if not states:
+        return [CheckResult("Programs", OK, f"none declared ({config.get('programs.folder')})")]
+    return [CheckResult(f"Program {s.name}", OK if s.status == TRUSTED else WARN, f"{s.status}: {s.detail}")
+            for s in states]
+
+
 def check_memory(config: Config) -> CheckResult:
     """M6: one line; with memory on, the user memory folder must be writable."""
     if not config.get("memory.enabled"):
@@ -219,7 +232,8 @@ def run_checks(config: Config, *, online: bool = False,
                env: Mapping[str, str] | None = None) -> list[CheckResult]:
     results = [check_python()]
     for check in (lambda: check_config(config), lambda: check_api_key(config, env),
-                  check_packages, lambda: check_paths(config), lambda: check_knowledge(config)):
+                  check_packages, lambda: check_paths(config), lambda: check_knowledge(config),
+                  lambda: check_programs(config)):
         try:
             results.extend(check())
         except Exception as exc:  # a broken check must not hide the others

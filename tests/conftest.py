@@ -18,6 +18,10 @@ agent) are hidden too, so ``load_config``, ``example_fragment_problems``,
 The filtered functions replace every reference to the originals in the loaded
 ``champion`` modules (some modules import them by name). A core test that must see
 every agent of the repository is marked ``@pytest.mark.track_agents``.
+
+M2: every test gets its own empty ``programs.folder`` and ``programs.trust_file``
+(under ``tmp_path``), so no test reads or writes the user's ``~/.champion``. A test
+that checks the real defaults is marked ``@pytest.mark.real_program_defaults``.
 """
 
 import sys
@@ -73,6 +77,20 @@ def hide_track_agents(monkeypatch) -> set[str]:
 def pytest_configure(config):
     config.addinivalue_line("markers", "track_agents: a core test that sees the agents, config sections and "
                                        "knowledge bases of the track packages (CR-1)")
+    config.addinivalue_line("markers", "real_program_defaults: the programs section keeps its real defaults "
+                                       "(~/.champion) instead of tmp paths (M2)")
+
+
+@pytest.fixture(autouse=True)
+def _programs_in_tmp(request, tmp_path, monkeypatch):
+    from champion.core import config as cfg
+
+    if request.node.get_closest_marker("real_program_defaults"):
+        return
+
+    defaults = dict(cfg.DEFAULTS["programs"], folder=str(tmp_path / "champion-programs"),
+                    trust_file=str(tmp_path / "champion-programs.trust"))
+    monkeypatch.setitem(cfg.DEFAULTS, "programs", defaults)
 
 
 @pytest.fixture(autouse=True)

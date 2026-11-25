@@ -54,6 +54,12 @@ def register(rule: ToolRule) -> ToolRule:
     return rule
 
 
+def replace(rule: ToolRule) -> ToolRule:
+    """M2: set the rule of a tool built from user data (a program entry can change between sessions)."""
+    _RULES[rule.name] = rule
+    return rule
+
+
 def rule_for(name: str) -> ToolRule:
     try:
         return _RULES[name]

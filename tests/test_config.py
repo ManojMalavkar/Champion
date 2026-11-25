@@ -24,6 +24,7 @@ def load(tmp_path: Path, text: str):
     return load_config(write_config(tmp_path, text), env={}, cwd=tmp_path)
 
 
+@pytest.mark.real_program_defaults
 def test_example_config_matches_defaults():
     # Keeps config.example.yaml and DEFAULTS in sync: every default is documented.
     # The llm section is the project's real setup (Databricks AI Gateway), so only

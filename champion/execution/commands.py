@@ -16,6 +16,12 @@ and decides nothing itself.
 * output is read while the command runs and kept up to the cap (the rest is
   counted and dropped, so a huge output never fills memory); private key
   blocks and token-like strings are hidden before the text is returned.
+
+M2 (program tools): ``executables`` lets the caller give the absolute path of a
+program the user trusted (pinned SHA-256, checked by ``champion.programs``)
+instead of the lookup in the system folders; ``path_prepend`` puts declared
+folders before ``/usr/bin:/bin``. Everything else (no shell, clean
+environment, limits, process group) is the same.
 """
 
 from __future__ import annotations
@@ -88,8 +94,8 @@ def resolve(command: str) -> str:
     raise ToolError(f"'{command}' is not installed on this machine (looked in {', '.join(SYSTEM_BIN)})")
 
 
-def clean_env(home: str) -> dict[str, str]:
-    return {"PATH": SAFE_PATH, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": os.environ.get("TZ", "UTC"),
+def clean_env(home: str, path_prepend: tuple[str, ...] = ()) -> dict[str, str]:
+    return {"PATH": ":".join((*path_prepend, SAFE_PATH)), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": os.environ.get("TZ", "UTC"),
             "HOME": home}
 
 
@@ -162,14 +168,19 @@ def _kill_group(pgid: int, processes: list[subprocess.Popen]) -> None:
 
 
 def run_steps(steps: list[list[str]], cwd: str, limits: Limits,
-              extra_env: dict[str, str] | None = None) -> CommandResult:
+              extra_env: dict[str, str] | None = None, *, executables: list[str] | None = None,
+              path_prepend: tuple[str, ...] = ()) -> CommandResult:
     """Run one command or a pipeline (stdout of each step to the next); never a shell.
 
-    ``extra_env`` is only used by run_check (``coder.check_env``); it never replaces
-    the fixed variables of the clean environment."""
-    executables = [resolve(argv[0]) for argv in steps]
+    ``extra_env`` is used by run_check (``coder.check_env``) and program tools (M2); it
+    never replaces the fixed variables of the clean environment. ``executables`` (M2):
+    absolute paths of trusted programs, one per step, instead of the system lookup."""
+    if executables is None:
+        executables = [resolve(argv[0]) for argv in steps]
+    elif len(executables) != len(steps) or not all(os.path.isabs(e) for e in executables):
+        raise ToolError("internal: one absolute executable per step is needed")
     home = tempfile.mkdtemp(prefix="champion-home-")
-    env = clean_env(home)
+    env = clean_env(home, tuple(path_prepend))
     for name, value in (extra_env or {}).items():
         env.setdefault(name, value)
     keep = max(limits.output_chars * 4, 4096)

@@ -105,6 +105,14 @@ knowledge:
   fetch_factor: 5                   # with an agent's filter: fetch this many times more, then filter
   max_hit_chars: 1500               # text of one result is cut to this
 
+# M2: trusted programs and scripts as agent tools. The manifest is <folder>/programs.yaml
+# (see examples/programs/); every program must be trusted first: champion programs trust NAME
+programs:
+  folder: ~/.champion/programs      # null = no manifest (track programs only)
+  trust_file: ~/.champion/programs.trust  # pinned SHA-256 per program (mode 600)
+  max_direct_tools: 15              # more programs for one agent: programs_list / program_run
+  max_timeout_seconds: 3600         # upper bound of a program's timeout_seconds
+
 kb:
   sources: {}                       # name: local checkout of a source repository
   max_source_file_bytes: 2097152    # 2 MiB: larger source files are skipped

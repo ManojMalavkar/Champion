@@ -143,6 +143,7 @@ class ChampionRuntime:
             self.agent = agent_factory(self.model)
         else:
             self.specialists, self.specialist_problems = select_specialists(config)
+            self._attach_programs(config)
             self.agent = build_orchestrator(self.model, self.specialists, config)
         self.context.specialists = [spec.tool_name for spec in self.specialists]
         self.context.sub_agents = {spec.tool_name: [m.tool_name for m in spec.members]
@@ -157,6 +158,17 @@ class ChampionRuntime:
         self.max_turns = config.get("orchestration.max_steps")
         self.total_usage = TurnUsage()
         self.new_session()
+
+    def _attach_programs(self, config: Config) -> None:
+        """M2: add the user's trusted programs to their agents; a failure here never stops Champion."""
+        try:
+            from champion.programs.tools import attach_program_tools
+
+            self.specialists, problems = attach_program_tools(config, self.specialists,
+                                                              self.context.working_directory)
+        except Exception as exc:  # noqa: BLE001 - reported at start, Champion still runs
+            problems = [f"programs not offered: {type(exc).__name__}: {exc}"]
+        self.specialist_problems = [*self.specialist_problems, *problems]
 
     def new_session(self) -> None:
         self.session = SQLiteSession(f"champion-{uuid.uuid4().hex}")  # in memory only

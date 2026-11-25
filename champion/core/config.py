@@ -122,6 +122,12 @@ DEFAULTS: dict[str, Any] = {
         "fetch_factor": 5,  # with a track filter: fetch this many times more, then filter
         "max_hit_chars": 1500,  # text of one result is cut to this
     },
+    "programs": {  # M2: trusted external programs and scripts as tools (champion/programs/)
+        "folder": "~/.champion/programs",  # holds programs.yaml (the user's manifest); null = none
+        "trust_file": "~/.champion/programs.trust",  # pinned SHA-256 per program (mode 600)
+        "max_direct_tools": 15,  # more programs for one agent: programs_list / program_run instead
+        "max_timeout_seconds": 3600,  # upper bound of a program's timeout_seconds
+    },
     "kb": {
         "sources": {},
         "max_source_file_bytes": 2 * MiB,
@@ -155,6 +161,8 @@ ROOT_PATH_KEYS = (
     "storage.audit_db",
     "storage.log_dir",
     "access.file",
+    "programs.folder",
+    "programs.trust_file",
 )
 
 # M1: these keys moved from pydyna to files; old names are taken over with a warning.
@@ -564,6 +572,14 @@ def validate(data: dict) -> list[str]:
     positive_int("knowledge.max_results", 100)
     positive_int("knowledge.fetch_factor", 20)
     positive_int("knowledge.max_hit_chars", 20000)
+    positive_int("programs.max_direct_tools", 100)
+    positive_int("programs.max_timeout_seconds", 86400)
+    for key in ("folder", "trust_file"):
+        value = get(f"programs.{key}")
+        if value is not None and not isinstance(value, str):
+            errors.append(f"programs.{key} must be a path or null (got {value!r})")
+    if get("programs.trust_file") is None:
+        errors.append("programs.trust_file cannot be null (programs are only offered after the user trusts them)")
 
     positive_int("kb.max_source_file_bytes")
     boolean("mcp.enabled")

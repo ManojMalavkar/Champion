@@ -2,7 +2,8 @@
 
 ``champion --version``, ``champion doctor`` (step 0), ``champion chat``
 (steps 1-2a) and ``champion kb status`` / ``champion kb build`` (M1: the
-knowledge bases the agents declare). The terminal UI is track T9.
+knowledge bases the agents declare), ``champion programs list|check|trust|untrust``
+(M2: trusted programs as agent tools). The terminal UI is track T9.
 """
 
 from __future__ import annotations
@@ -48,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     kb.add_argument("--allow-foreign", action="store_true",
                     help="build: write into a database without MANIFEST.json (not built by Champion)")
 
+    programs = commands.add_parser("programs", help="trusted programs the agents may run: list, check, trust")
+    programs.add_argument("action", choices=("list", "check", "trust", "untrust"))
+    programs.add_argument("name", nargs="?", help="trust / untrust: the program name")
+
     access = commands.add_parser("access", help="show or change the saved per-folder access list")
     access.add_argument("action", choices=("list", "add", "remove", "outside", "working"))
     access.add_argument("values", nargs="*", help="add PATH read|edit|none; remove PATH|N; "
@@ -91,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "kb":
         return run_kb(config, args)
+
+    if args.command == "programs":
+        return run_programs(config, args)
 
     if args.command == "access":
         from champion.access_commands import cli_access
@@ -148,6 +156,60 @@ def run_kb(config, args) -> int:
         print(f"ERROR {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _program_line(state) -> str:
+    spec = state.spec
+    shape = f"{spec.cls:<6} {spec.agent:<14}" if spec is not None else f"{'-':<6} {'-':<14}"
+    return f"  {state.status:<9} {state.name:<22} {shape} {state.detail}"
+
+
+def run_programs(config, args) -> int:
+    """``champion programs ...`` (M2). ``check`` exits 1 when a program cannot be offered."""
+    import shlex
+    from pathlib import Path
+
+    from champion.programs.manifest import TRUSTED, UNTRUSTED, ProgramError, program_states, trust, untrust
+    from champion.specialists.registry import load_builtin_specialists
+
+    load_builtin_specialists()  # tracks may declare programs
+    working = Path(config.get("execution.working_directory"))
+    if args.action in ("trust", "untrust") and not args.name:
+        print(f"champion programs {args.action} needs a program name", file=sys.stderr)
+        return 2
+    try:
+        if args.action == "untrust":
+            print(f"{args.name}: {'no longer trusted' if untrust(config, args.name) else 'was not trusted'}")
+            return 0
+        if args.action == "trust":
+            state = trust(config, args.name, working)
+            spec = state.spec
+            print(f"{spec.name}: trusted ({spec.source})")
+            print(f"  program : {state.path}\n  SHA-256 : {state.file_sha256}")
+            if state.interpreter_resolved:
+                print(f"  interpreter : {state.interpreter_requested} -> {state.interpreter_resolved}")
+                print(f"  SHA-256 : {state.interpreter_sha256}")
+            print(f"  starts  : {shlex.join(state.argv0)} {' '.join(spec.args)}")
+            print(f"  class   : {spec.cls} (agent {spec.agent}, needs {spec.right} access)"
+                  f"{', approval every run' if spec.asks else ''}")
+            print(f"  entry   : {spec.fingerprint}")
+            if spec.cls != "read":
+                print("  warning : what it changes is audited (/changes, audit log) but cannot be undone "
+                      "(undo of program changes needs the staging of M3)")
+            print("  Champion offers it while the program, its interpreter and the entry stay as they are now.")
+            return 0
+    except ProgramError as exc:
+        print(f"ERROR {exc}", file=sys.stderr)
+        return 1
+    states = program_states(config, working)
+    if not states:
+        print(f"No programs declared ({config.get('programs.folder')}/programs.yaml; tracks declare none).")
+        return 0
+    print(f"Programs ({len(states)}): {config.get('programs.folder')}/programs.yaml and track packages")
+    for state in states:
+        print(_program_line(state))
+    bad = [s for s in states if s.status not in (TRUSTED, UNTRUSTED)]
+    return 1 if args.action == "check" and bad else 0
 
 
 if __name__ == "__main__":
