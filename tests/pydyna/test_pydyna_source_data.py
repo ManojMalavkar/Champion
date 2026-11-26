@@ -192,7 +192,6 @@ def project_config(tmp_path):
 
 
 def test_m1_builds_pydpf_core_from_the_generated_records_and_searches_it(tmp_path, monkeypatch):
-    pytest.importorskip("chromadb")
     import asyncio
     import importlib
 
@@ -202,26 +201,31 @@ def test_m1_builds_pydpf_core_from_the_generated_records_and_searches_it(tmp_pat
     from champion.knowledge.builder import build_collection
     from champion.knowledge.manifest import read_manifest
     from champion.knowledge.root import KnowledgeError
+    from champion.knowledge.store import fingerprint
     from champion.storage.audit import AuditLog
 
     config = project_config(tmp_path)
     kb = pt.knowledge_base_path(config)
     sd.generate(CORE, kb, ref="v0.16.3", source=make_repo(tmp_path / "repo"))
+    backup = kb.parent / "vector_db_dpf_core"  # the old Chroma database (CR-4: a backup, never opened)
+    backup.mkdir()
+    (backup / "chroma.sqlite3").write_bytes(b"old chroma database")
+    before = fingerprint(backup, True)
     documents = rec.dpf_core_documents(kb)
     info = build_collection(config, "pydyna", "pydpf_core", embedder=Letters())
     db = pt.dpf_core_database_path(config)
-    assert db == pt.database_path(config).parent / "vector_db_dpf_core"
+    assert db == pt.database_path(config).parent / "index_dpf_core"
     assert info.count == len(documents) > 0 and info.space == "l2" and info.model == "BAAI/bge-small-en-v1.5"
     data = (kb / "pydpf_core_source.jsonl").read_bytes()
     entry = read_manifest(db)["pydpf_core"]
     assert entry.count == len(documents) and entry.dimension == 9
     assert [(f.name, f.bytes, f.sha256) for f in entry.files] == [
         ("pydpf_core_source.jsonl", len(data), hashlib.sha256(data).hexdigest())]
-    assert not (pt.database_path(config) / "chroma.sqlite3").exists()  # the main database is not touched
+    assert {f.name for f in entry.store_files} == {"pydpf_core.npy", "pydpf_core.sqlite3"}
+    assert not pt.database_path(config).exists()  # the main store (index) is not touched
+    assert fingerprint(backup, True) == before  # the backup is not touched
     with pytest.raises(KnowledgeError, match="--replace"):
         build_collection(config, "pydyna", "pydpf_core", embedder=Letters())
-    with pytest.raises(KnowledgeError, match="does not say how to build it"):
-        build_collection(config, "pydyna", "lsdyna_keywords", embedder=Letters())  # search only
 
     monkeypatch.setattr(importlib.import_module("champion.knowledge.search"), "embedder_for",
                         lambda *args: Letters())

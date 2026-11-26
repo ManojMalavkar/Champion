@@ -34,13 +34,15 @@ search tools return M1's text (id, score = 1 - distance, raw distance, source, c
 
 T1.1 (M1): the four search tools are built by ``champion.knowledge.tools.make_search_tool``
 on the collections declared in ``KNOWLEDGE`` (same tool names as before); M1 opens the
-databases read-only, embeds offline and checks manifests. Paths: ``pydyna.knowledge_root``
-(default ``<project>/knowledge/pydyna``) with ``vector_db`` (``lsdyna_keywords``,
-``pydyna_api``, ``pydpf_post``: the old agent's database, search only),
-``vector_db_dpf_core`` (``pydpf_core``: built by ``champion kb build --agent pydyna
---collection pydpf_core``) and ``knowledge-base``. The old keys ``pydyna.database_path``,
-``pydyna.dpf_core_database_path`` and ``pydyna.keyword_reference_path`` still work for the
-keyword lookups; for a search they must match the root's layout.
+stores read-only, embeds offline and checks manifests. Paths: ``pydyna.knowledge_root``
+(default ``<project>/knowledge/pydyna``) with ``knowledge-base`` and, since CR-4, Champion's
+own stores ``index`` (``lsdyna_keywords``, ``pydyna_api``, ``pydpf_post``) and
+``index_dpf_core`` (``pydpf_core``). All four are built from the knowledge-base JSONL with
+``champion kb build --agent pydyna`` (records from ``records.py``). The old Chroma folders
+``vector_db`` and ``vector_db_dpf_core`` stay as backups and are never opened. The old keys
+``pydyna.database_path``, ``pydyna.dpf_core_database_path`` and
+``pydyna.keyword_reference_path`` still work for the keyword lookups; for a search they must
+match the root's layout.
 """
 
 from __future__ import annotations
@@ -67,19 +69,32 @@ from champion.specialists.pydyna import records as rec
 from champion.tools.guard import ToolError, run_guarded
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+STORE = "index"  # lsdyna_keywords, pydyna_api, pydpf_post (CR-4)
+DPF_CORE_STORE = "index_dpf_core"  # pydpf_core in its own store folder (user, 24 Nov 2026)
 
 
-def _core_documents(kb_dir):
-    return [Document(d.id, d.text, d.metadata) for d in rec.dpf_core_documents(kb_dir)]
+def _m1(documents):
+    """``records.py`` documents as M1 ``Document``s (M1 builds the collection from them)."""
+    def build(kb_dir):
+        return [Document(d.id, d.text, d.metadata) for d in documents(kb_dir)]
+    return build
 
+
+_keyword_documents = _m1(rec.keyword_documents)
+_api_documents = _m1(rec.api_documents)
+_post_documents = _m1(rec.dpf_post_documents)
+_core_documents = _m1(rec.dpf_core_documents)
 
 KNOWLEDGE = register_knowledge(KnowledgeSpec("pydyna", (
-    KnowledgeCollection(rec.KW_COLLECTION, EMBED_MODEL),
-    KnowledgeCollection(rec.API_COLLECTION, EMBED_MODEL,
+    KnowledgeCollection(rec.KW_COLLECTION, EMBED_MODEL, database=STORE,
+                        documents=_keyword_documents, files=rec.keyword_files),
+    KnowledgeCollection(rec.API_COLLECTION, EMBED_MODEL, database=STORE,
+                        documents=_api_documents, files=rec.api_files,
                         keep=lambda hit: rec.keep_api_path(hit.source)),
-    KnowledgeCollection(rec.DPF_POST_COLLECTION, EMBED_MODEL,
+    KnowledgeCollection(rec.DPF_POST_COLLECTION, EMBED_MODEL, database=STORE,
+                        documents=_post_documents, files=rec.dpf_post_files,
                         keep=lambda hit: rec.keep_code_path(hit.source)),
-    KnowledgeCollection(rec.DPF_CORE_COLLECTION, EMBED_MODEL, database="vector_db_dpf_core",
+    KnowledgeCollection(rec.DPF_CORE_COLLECTION, EMBED_MODEL, database=DPF_CORE_STORE,
                         documents=_core_documents, files=rec.dpf_core_files,
                         keep=lambda hit: rec.keep_code_path(hit.source)),
 ), config_section="pydyna"))
@@ -106,13 +121,13 @@ for _rule in (
 
 def database_path(config: Config) -> Path:
     value = config.get("pydyna.database_path")
-    return Path(value) if value else resolve_root(config, "pydyna").db_dir()
+    return Path(value) if value else resolve_root(config, "pydyna").db_dir(STORE)
 
 
 def dpf_core_database_path(config: Config) -> Path:
-    """The ``pydpf_core`` database: its own folder next to the main one (not the old agent's database)."""
+    """The ``pydpf_core`` store: its own folder next to the main one."""
     value = config.get("pydyna.dpf_core_database_path")
-    return Path(value) if value else database_path(config).parent / "vector_db_dpf_core"
+    return Path(value) if value else database_path(config).parent / DPF_CORE_STORE
 
 
 def knowledge_base_path(config: Config) -> Path:
@@ -266,8 +281,8 @@ def keyword_category(config: Config, category: str | None) -> str | None:
 def check_search_paths(config: Config) -> None:
     """M1 searches ``pydyna.knowledge_root``; an old path key that points elsewhere is an error, not ignored."""
     root = resolve_root(config, "pydyna")
-    expected = {"database_path": root.db_dir(),
-                "dpf_core_database_path": root.db_dir("vector_db_dpf_core"),
+    expected = {"database_path": root.db_dir(STORE),
+                "dpf_core_database_path": root.db_dir(DPF_CORE_STORE),
                 "keyword_reference_path": root.kb_dir / rec.KW_REF_FILE}
     for key, path in expected.items():
         value = config.get(f"pydyna.{key}")

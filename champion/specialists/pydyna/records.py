@@ -114,10 +114,21 @@ def keyword_schema_files(kb_dir: Path) -> list[Path]:
     return _shards_or_file(Path(kb_dir), KW_SCHEMA_SHARDS, KW_SCHEMA_FILE)
 
 
+def keyword_files(kb_dir: Path) -> list[Path]:
+    """Source files of ``lsdyna_keywords``: the generated schema and the curated reference."""
+    kb_dir = Path(kb_dir)
+    reference = [kb_dir / KW_REF_FILE] if (kb_dir / KW_REF_FILE).is_file() else []
+    return keyword_schema_files(kb_dir) + reference
+
+
 def api_files(kb_dir: Path) -> list[Path]:
     kb_dir = Path(kb_dir)
     docs = [kb_dir / API_DOCS_FILE] if (kb_dir / API_DOCS_FILE).is_file() else []
     return docs + _shards_or_file(kb_dir, API_SOURCE_SHARDS, API_SOURCE_FILE)
+
+
+def dpf_post_files(kb_dir: Path) -> list[Path]:
+    return _shards_or_file(Path(kb_dir), DPF_POST_SHARDS, DPF_POST_FILE)
 
 
 # ---------------------------------------------------------------- keywords
@@ -284,8 +295,7 @@ def dpf_post_document(record: dict) -> Document:
 
 
 def dpf_post_documents(kb_dir: Path) -> list[Document]:
-    files = _shards_or_file(Path(kb_dir), DPF_POST_SHARDS, DPF_POST_FILE)
-    return unique_ids(dpf_post_document(record) for path in files for record in read_jsonl(path)
+    return unique_ids(dpf_post_document(record) for path in dpf_post_files(kb_dir) for record in read_jsonl(path)
                       if keep_code_path(record.get("source_path", "")))
 
 

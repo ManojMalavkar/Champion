@@ -1,7 +1,8 @@
 """PyDyna tools (track T1): the old PyDyna_Agent tools on Champion's guard.
 
-Searches use a fake backend (no model, no database); one test builds a small
-real Chroma database with a fake embedding (skipped without chromadb).
+Searches use a fake backend (no model, no database); one test builds the
+``lsdyna_keywords`` store from the fixture JSONL with a fake embedding and searches it
+through M1 (CR-4: Champion's own store, no Chroma).
 """
 
 import asyncio
@@ -40,12 +41,22 @@ def project(tmp_path):
     return config, kb
 
 
+def fake_manifest(monkeypatch, shared):
+    """Every PyDyna collection built (CR-4: M1 needs a manifest entry before it opens a store)."""
+    from champion.knowledge.manifest import CollectionInfo
+    from champion.knowledge.registry import knowledge_spec
+
+    entries = {c.name: CollectionInfo(c.name, 1, c.model, 2, c.space) for c in knowledge_spec("pydyna").collections}
+    monkeypatch.setattr(shared, "read_manifest", lambda db_dir: entries)
+
+
 def fake_m1(monkeypatch, hits):
     """M1 search with a fake model and store; ``hits``: collection -> [(id, text, metadata, distance)]."""
     import importlib
 
     from champion.knowledge.store import Hit as SharedHit
     shared = importlib.import_module("champion.knowledge.search")
+    fake_manifest(monkeypatch, shared)
     calls = []
 
     class Embedder:
@@ -90,7 +101,8 @@ def test_pydyna_group_has_four_sub_agents_and_every_tool_a_policy_entry():
 
 def test_default_paths_are_in_the_project_and_config_paths_win(project, tmp_path):
     config, kb = project
-    assert pt.database_path(config) == tmp_path / "knowledge" / "pydyna" / "vector_db"
+    assert pt.database_path(config) == tmp_path / "knowledge" / "pydyna" / "index"
+    assert pt.dpf_core_database_path(config) == tmp_path / "knowledge" / "pydyna" / "index_dpf_core"
     assert pt.knowledge_base_path(config) == kb
     config.data["pydyna"]["keyword_reference_path"] = str(tmp_path / "other" / "keyword_reference.jsonl")
     config.data["pydyna"]["database_path"] = str(tmp_path / "db")
@@ -189,12 +201,10 @@ def test_search_pydpf_post_drops_repository_files_of_the_old_database(project, m
 
 
 def test_search_without_database_says_how_to_build(project):
-    pytest.importorskip("chromadb")
-    pytest.importorskip("sentence_transformers")  # without them M1 names the missing packages first
     config, _ = project
     text = call(config, pt.search_pydpf_core, query="energy", n_results=1)
-    assert text.startswith("ERROR:") and "no database at" in text and "vector_db_dpf_core" in text
-    assert "champion kb build" in text
+    assert text.startswith("ERROR:") and "no knowledge store in" in text and "index_dpf_core" in text
+    assert "champion kb build --agent pydyna --collection pydpf_core" in text
 
 
 def test_tools_run_through_the_guard_even_without_read_access(project, monkeypatch):
@@ -208,12 +218,15 @@ def test_tools_run_through_the_guard_even_without_read_access(project, monkeypat
     assert error.startswith("ERROR: keyword *NOPE is not in the PyDyna knowledge base")
 
 
-def test_real_chroma_database_with_category_filter_through_m1(project, monkeypatch):
-    """A real Chroma database without MANIFEST.json (like the old agent's), searched read-only by M1."""
-    chromadb = pytest.importorskip("chromadb")
+def test_built_keyword_store_with_category_filter_through_m1(project, monkeypatch):
+    """CR-4: lsdyna_keywords built from the fixture JSONL into index/, searched read-only by M1."""
     import importlib
+    import re
 
-    from chromadb.config import Settings
+    from champion.knowledge import store as store_mod
+    from champion.knowledge.builder import build_collection
+    from champion.knowledge.manifest import read_manifest
+    from champion.knowledge.store import fingerprint
     shared = importlib.import_module("champion.knowledge.search")
 
     def letters(text):  # fake embedding: counts of a few letters (enough to rank, no model)
@@ -223,34 +236,45 @@ def test_real_chroma_database_with_category_filter_through_m1(project, monkeypat
         def embed(self, texts):
             return [letters(t) for t in texts]
 
-    config, _ = project
+    config, kb = project
+    old = kb.parent / "vector_db"  # an old Chroma folder: a backup, never opened
+    old.mkdir()
+    (old / "chroma.sqlite3").write_bytes(b"old chroma database")
+    before = fingerprint(old, True)
+    records, _ = pt.keywords(config)
+    materials = {f"kw:{name}" for name, r in records.items() if r.get("category") == "material"}
+    assert materials and len(materials) < len(records)  # the fixture has material and other keywords
+    info = build_collection(config, "pydyna", "lsdyna_keywords", embedder=Embedder())
     db = pt.database_path(config)
-    documents = ["*MAT_024 material metal plasticity", "*MAT_020 material rigid", "*SECTION_SHELL section shell thickness"]
-    client = chromadb.PersistentClient(path=str(db), settings=Settings(anonymized_telemetry=False))
-    collection = client.create_collection("lsdyna_keywords", embedding_function=None)
-    collection.add(ids=["kw:*MAT_024", "kw:*MAT_020", "kw:*SECTION_SHELL"], documents=documents,
-                   embeddings=[letters(d) for d in documents],
-                   metadatas=[{"keyword": "*MAT_024", "category": "material"},
-                              {"keyword": "*MAT_020", "category": "material"},
-                              {"keyword": "*SECTION_SHELL", "category": "section"}])
-    del client
+    assert info.count == len(records) and db.name == "index"
+    entry = read_manifest(db)["lsdyna_keywords"]
+    assert {f.name for f in entry.files} == {p.name for p in pt.rec.keyword_files(kb)}
+    assert {f.name for f in entry.store_files} == {"lsdyna_keywords.npy", "lsdyna_keywords.sqlite3"}
+    store_mod.forget_store()
     monkeypatch.setattr(shared, "embedder_for", lambda *args: Embedder())
-    filtered = call(config, pt.search_keyword, query="shell thickness", n_results=3, category="material")
-    assert "2 result(s)" in filtered and "SECTION_SHELL" not in filtered and "distance" in filtered
-    unfiltered = call(config, pt.search_keyword, query="shell thickness", n_results=3, category=None)
-    assert "3 result(s)" in unfiltered and "*SECTION_SHELL" in unfiltered
+    filtered = call(config, pt.search_keyword, query="shell thickness", n_results=20, category="material")
+    ids = set(re.findall(r"id (kw:\S+)", filtered))
+    assert f"{len(materials)} result(s)" in filtered and ids == materials and "distance" in filtered
+    unfiltered = call(config, pt.search_keyword, query="shell thickness", n_results=20, category=None)
+    assert f"{len(records)} result(s)" in unfiltered
+    assert fingerprint(old, True) == before
 
 
 # T1.1: test the actual M1 tools, not only the old work helpers.
-def test_m1_registers_four_existing_collections_and_core_builder(project):
-    from champion.knowledge.registry import knowledge_spec
+def test_m1_registers_four_buildable_collections(project):
+    from champion.knowledge.registry import Document, knowledge_spec
     config, kb = project
     spec = knowledge_spec("pydyna")
     assert [c.name for c in spec.collections] == ["lsdyna_keywords", "pydyna_api", "pydpf_post", "pydpf_core"]
-    assert [c.database for c in spec.collections] == ["vector_db"] * 3 + ["vector_db_dpf_core"]
+    assert [c.database for c in spec.collections] == ["index"] * 3 + ["index_dpf_core"]  # CR-4
     assert all(c.model == "BAAI/bge-small-en-v1.5" and c.space == "l2" for c in spec.collections)
-    assert all(c.documents is None for c in spec.collections[:3])
-    assert spec.collection("pydpf_core").documents is pt._core_documents
+    assert [c.documents for c in spec.collections] == [pt._keyword_documents, pt._api_documents,
+                                                       pt._post_documents, pt._core_documents]
+    assert [c.files for c in spec.collections] == [pt.rec.keyword_files, pt.rec.api_files,
+                                                   pt.rec.dpf_post_files, pt.rec.dpf_core_files]
+    keywords = spec.collection("lsdyna_keywords").documents(kb)  # fixture JSONL -> M1 documents
+    assert keywords and all(isinstance(d, Document) for d in keywords)
+    assert [d.id for d in keywords] == [d.id for d in pt.rec.keyword_documents(kb)]
     assert config.data["pydyna"] == dict(PYDYNA.config_defaults)
 
 
@@ -258,17 +282,17 @@ def test_m1_config_root_moves_all_paths_and_matches_example(project, tmp_path):
     from champion.core.config import example_fragment_problems
     config, _ = project
     config.data["pydyna"]["knowledge_root"] = str(tmp_path / "other_knowledge")
-    assert pt.database_path(config) == tmp_path / "other_knowledge" / "vector_db"
-    assert pt.dpf_core_database_path(config) == tmp_path / "other_knowledge" / "vector_db_dpf_core"
+    assert pt.database_path(config) == tmp_path / "other_knowledge" / "index"
+    assert pt.dpf_core_database_path(config) == tmp_path / "other_knowledge" / "index_dpf_core"
     assert pt.knowledge_base_path(config) == tmp_path / "other_knowledge" / "knowledge-base"
     assert example_fragment_problems() == []
 
 
 @pytest.mark.parametrize("tool_name,collection,database", [
-    ("search_keyword", "lsdyna_keywords", "vector_db"),
-    ("search_pydyna_api", "pydyna_api", "vector_db"),
-    ("search_pydpf_post", "pydpf_post", "vector_db"),
-    ("search_pydpf_core", "pydpf_core", "vector_db_dpf_core"),
+    ("search_keyword", "lsdyna_keywords", "index"),
+    ("search_pydyna_api", "pydyna_api", "index"),
+    ("search_pydpf_post", "pydpf_post", "index"),
+    ("search_pydpf_core", "pydpf_core", "index_dpf_core"),
 ])
 def test_live_search_tools_use_m1_filters_sources_and_guard(project, monkeypatch, tool_name, collection, database):
     import importlib
@@ -291,6 +315,7 @@ def test_live_search_tools_use_m1_filters_sources_and_guard(project, monkeypatch
         assert path == pt.database_path(config).parent / database
         assert verify is True
         return Store()
+    fake_manifest(monkeypatch, shared)
     monkeypatch.setattr(shared, "embedder_for", lambda *args: Embedder())
     monkeypatch.setattr(shared, "store_for", store)
     context = ChampionContext.from_config(config, level="1.1", audit=AuditLog())
