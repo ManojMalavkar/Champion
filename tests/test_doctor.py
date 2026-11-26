@@ -77,10 +77,11 @@ def test_config_warnings_are_reported(tmp_path):
 
 
 def test_packages_required_fail_optional_warn():
-    missing = {"agents", "chromadb"}
+    missing = {"agents", "numpy"}
     results = doctor.check_packages(lambda name: None if name in missing else object())
     assert by_name(results, "Package openai-agents")[0].status == FAIL
-    assert by_name(results, "Package chromadb")[0].status == WARN
+    assert by_name(results, "Package numpy")[0].status == WARN
+    assert not by_name(results, "Package chromadb")  # CR-4: the knowledge store does not use Chroma
     assert by_name(results, "Package rich")[0].status == OK
 
 

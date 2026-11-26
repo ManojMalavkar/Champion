@@ -46,8 +46,6 @@ def build_parser() -> argparse.ArgumentParser:
     kb.add_argument("--verify", action="store_true",
                     help="status: also compare the source files with the SHA-256 in MANIFEST.json")
     kb.add_argument("--replace", action="store_true", help="build: build an existing collection again")
-    kb.add_argument("--allow-foreign", action="store_true",
-                    help="build: write into a database without MANIFEST.json (not built by Champion)")
 
     programs = commands.add_parser("programs", help="trusted programs the agents may run: list, check, trust")
     programs.add_argument("action", choices=("list", "check", "trust", "untrust"))
@@ -149,7 +147,7 @@ def run_kb(config, args) -> int:
             raise KnowledgeError(f"{args.agent} declares no collection that can be built")
         for name in names:
             print(f"{args.agent}/{name}: building ...")
-            info = build_collection(config, args.agent, name, replace=args.replace, allow_foreign=args.allow_foreign,
+            info = build_collection(config, args.agent, name, replace=args.replace,
                                     progress=lambda done, total: print(f"  {done}/{total}", end="\r", flush=True))
             print(f"\n{args.agent}/{name}: {info.count} entries, model {info.model} ({info.dimension}, {info.space})")
     except KnowledgeError as exc:

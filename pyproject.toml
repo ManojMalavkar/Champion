@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-knowledge = ["chromadb>=0.5", "sentence-transformers>=2.3"]
-pydyna = ["chromadb>=0.5", "sentence-transformers>=2.3"]
+knowledge = ["numpy>=1.24", "sentence-transformers>=2.3"]
+pydyna = ["numpy>=1.24", "sentence-transformers>=2.3"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

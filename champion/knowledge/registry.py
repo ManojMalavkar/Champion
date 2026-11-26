@@ -5,11 +5,11 @@ A track declares its collections once, in its own package, for example::
     register_knowledge(KnowledgeSpec("pydyna", (
         KnowledgeCollection("lsdyna_keywords", model="BAAI/bge-small-en-v1.5",
                             documents=keyword_documents, files=keyword_files),
-        KnowledgeCollection("pydpf_core", database="vector_db_dpf_core", model=..., keep=keep_code_path),
+        KnowledgeCollection("pydpf_core", database="index_dpf_core", model=..., keep=keep_code_path),
     )))
 
 The search tools, ``champion kb status`` / ``build`` and ``champion doctor`` read this;
-the track never opens Chroma itself. ``documents`` and ``files`` are only needed for
+the track never opens the store itself. ``documents`` and ``files`` are only needed for
 ``champion kb build``; ``keep`` drops hits at search time (for example test files).
 """
 
@@ -23,7 +23,7 @@ from typing import Any, Callable, Iterable, Mapping
 from champion.knowledge.manifest import SPACES
 from champion.knowledge.root import AGENT_NAME, DATABASE_NAME, DEFAULT_DATABASE, KnowledgeError
 
-COLLECTION_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{1,62}[a-zA-Z0-9]$")  # Chroma's rule
+COLLECTION_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{1,62}[a-zA-Z0-9]$")  # also a file name
 
 
 @dataclass(frozen=True)
@@ -38,8 +38,8 @@ class Document:
 class KnowledgeCollection:
     name: str
     model: str  # embedding model the collection is (or will be) built with
-    database: str = DEFAULT_DATABASE  # folder in the root: vector_db or vector_db_<name>
-    space: str = "l2"  # distance for a new build; Chroma's default for databases without one
+    database: str = DEFAULT_DATABASE  # store folder in the root: index or index_<name>
+    space: str = "l2"  # distance of the collection (l2 = squared Euclidean, as Chroma)
     description: str = ""
     documents: Callable[[Path], Iterable[Document]] | None = field(default=None, compare=False)
     files: Callable[[Path], list[Path]] | None = field(default=None, compare=False)
@@ -74,7 +74,7 @@ def spec_problems(spec: KnowledgeSpec) -> list[str]:
             problems.append(f"collection {item.name} is declared twice")
         seen.add(item.name)
         if not DATABASE_NAME.match(item.database or ""):
-            problems.append(f"{item.name}: database must be vector_db or vector_db_<name>")
+            problems.append(f"{item.name}: database must be index or index_<name>")
         if not isinstance(item.model, str) or not item.model.strip():
             problems.append(f"{item.name}: model is empty")
         if item.space not in SPACES:

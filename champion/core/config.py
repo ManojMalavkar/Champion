@@ -117,7 +117,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "knowledge": {  # M1: knowledge layer (champion/knowledge/), roots in <section>.knowledge_root
         "offline": True,  # embedding model from the local cache only (HF_HUB_OFFLINE=1)
-        "verify_hash": True,  # SHA-256 of the database files before and after opening
+        "verify_hash": True,  # SHA-256 of a collection's store files against MANIFEST.json when it is opened
         "max_results": 20,  # most results one search or lookup returns
         "fetch_factor": 5,  # with a track filter: fetch this many times more, then filter
         "max_hit_chars": 1500,  # text of one result is cut to this

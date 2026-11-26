@@ -1,13 +1,13 @@
 """Search and lookup in a declared collection (M1).
 
-``search`` embeds the question with the collection's model (offline), asks Chroma for the
-nearest entries and returns them with the raw distance, a score (``1 - distance``), the
-source file and the chunk. With a ``keep`` function (declared by the track) more entries
+``search`` embeds the question with the collection's model (offline), finds the nearest
+entries in the read-only store (exact search, CR-4) and returns them with the distance, a
+score (``1 - distance``), the source file and the chunk. With a ``keep`` function (declared by the track) more entries
 are fetched (``knowledge.fetch_factor`` x, at most 100) and the dropped ones are left out.
 ``lookup`` returns entries by id or by exact metadata values, without embedding.
 
-Before the first search of a collection its manifest entry (if there is one) must match
-the declared model; the vector length must match the manifest's dimension.
+Before the first search of a collection its manifest entry must exist and match the
+declared model; the vector length must match the manifest's dimension.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class Target:
     spec: KnowledgeSpec
     collection: KnowledgeCollection
     root: KnowledgeRoot
-    info: CollectionInfo | None  # manifest entry; None when the database has no manifest
+    info: CollectionInfo  # manifest entry
 
     @property
     def db_dir(self):
@@ -40,12 +40,15 @@ def target(config: Any, agent: str, collection: str) -> Target:
     spec = knowledge_spec(agent)
     item = spec.collection(collection)
     root = resolve_root(config, agent, spec.config_section)
+    build = f"champion kb build --agent {agent} --collection {collection}"
     manifest = read_manifest(root.db_dir(item.database))
-    info = (manifest or {}).get(item.name)
-    if manifest is not None and info is None:
-        raise KnowledgeError(f"{agent}/{collection}: not in {item.database}/MANIFEST.json; "
-                             f"build it with champion kb build --agent {agent} --collection {collection}")
-    if info is not None and info.model != item.model:
+    if manifest is None:
+        raise KnowledgeError(f"{agent}/{collection}: no knowledge store in {root.db_dir(item.database)} yet; "
+                             f"build it with {build}")
+    info = manifest.get(item.name)
+    if info is None:
+        raise KnowledgeError(f"{agent}/{collection}: not in {item.database}/MANIFEST.json; build it with {build}")
+    if info.model != item.model:
         raise KnowledgeError(f"{agent}/{collection} was built with {info.model}, but the agent uses {item.model}; "
                              "the vectors would not match; build the collection again")
     return Target(spec, item, root, info)
@@ -63,7 +66,7 @@ def search(config: Any, agent: str, collection: str, text: str, n_results: int =
     max_results, factor = _limits(config)
     n = max(1, min(int(n_results or 8), max_results))
     vector = embedder_for(found.collection.model, bool(config.get("knowledge.offline", True))).embed([text])[0]
-    if found.info is not None and len(vector) != found.info.dimension:
+    if len(vector) != found.info.dimension:
         raise KnowledgeError(f"{agent}/{collection}: the model gives vectors of length {len(vector)}, "
                              f"the database has {found.info.dimension}")
     store = store_for(found.db_dir, bool(config.get("knowledge.verify_hash", True)))

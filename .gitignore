@@ -9,6 +9,8 @@ logs/
 .champion/
 
 # knowledge layer (M1, PLAN.md P.8 item 7): JSONL sources committed, databases built locally
+knowledge/*/index/
+knowledge/*/index_*/
 knowledge/*/vector_db/
 knowledge/*/vector_db_*/
 
