@@ -30,7 +30,7 @@ REQUIRED_PACKAGES = [
     ("textual", "textual", "terminal UI (step 5)"),
 ]
 OPTIONAL_PACKAGES = [
-    ("chromadb", "chromadb", "knowledge search (M1, extra 'knowledge')"),
+    ("numpy", "numpy", "knowledge store and search (M1, extra 'knowledge')"),
     ("sentence_transformers", "sentence-transformers", "embeddings (M1, extra 'knowledge')"),
 ]
 

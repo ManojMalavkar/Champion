@@ -1,16 +1,19 @@
-"""``MANIFEST.json`` of a database folder (M1).
+"""``MANIFEST.json`` of a store folder (M1, CR-4).
 
-One manifest per database folder (``vector_db``, ``vector_db_<name>``), in the format the
-PyDyna track already writes (T1.3b ``build_index.py``)::
+One manifest per store folder (``index``, ``index_<name>``)::
 
-    {"format": 1,
+    {"format": 2,
      "collections": {"pydpf_core": {"count": 13014, "model": "BAAI/bge-small-en-v1.5",
                                     "dimension": 384, "space": "l2", "built_at": "...",
-                                    "files": [{"name": "x.jsonl", "bytes": 1, "sha256": "..."}]}}}
+                                    "files": [{"name": "x.jsonl", "bytes": 1, "sha256": "..."}],
+                                    "store_files": [{"name": "pydpf_core.npy", ...},
+                                                    {"name": "pydpf_core.sqlite3", ...}]}}}
 
-``format`` is optional (missing = 1). A database without a manifest (for example the old
-PyDyna_Agent database) can still be searched; its counts and model are then not checked
-and ``champion kb status`` says so.
+``files`` are the knowledge-base sources, ``store_files`` the two files of the collection
+in the store folder (CR-4). Format 1 (no ``store_files``; written for Chroma databases by
+the first M1 builder and the PyDyna track's ``build_index.py``; ``format`` missing = 1)
+is still read, so ``champion kb status`` can say such an entry must be built again; the
+store refuses to search it. A store folder without a manifest is not searched.
 """
 
 from __future__ import annotations
@@ -28,7 +31,8 @@ from typing import Any
 from champion.knowledge.root import KnowledgeError
 
 MANIFEST = "MANIFEST.json"
-FORMAT = 1
+FORMAT = 2  # written by this Champion
+READ_FORMATS = (1, 2)
 SPACES = ("l2", "cosine", "ip")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -48,12 +52,14 @@ class CollectionInfo:
     dimension: int
     space: str = "l2"
     built_at: str | None = None
-    files: tuple[FileEntry, ...] = field(default=())
+    files: tuple[FileEntry, ...] = field(default=())  # knowledge-base sources
+    store_files: tuple[FileEntry, ...] = field(default=())  # <name>.npy and <name>.sqlite3 (format 2)
 
     def to_json(self) -> dict[str, Any]:
         return {"count": self.count, "model": self.model, "dimension": self.dimension, "space": self.space,
                 "built_at": self.built_at,
-                "files": [{"name": f.name, "bytes": f.bytes, "sha256": f.sha256} for f in self.files]}
+                "files": [{"name": f.name, "bytes": f.bytes, "sha256": f.sha256} for f in self.files],
+                "store_files": [{"name": f.name, "bytes": f.bytes, "sha256": f.sha256} for f in self.store_files]}
 
 
 def _is_int(value: Any) -> bool:
@@ -73,16 +79,22 @@ def _collection(name: str, raw: Any) -> CollectionInfo:
         raise KnowledgeError(f"{where}: dimension must be a whole number above 0 (got {dimension!r})")
     if space not in SPACES:
         raise KnowledgeError(f"{where}: space must be one of {', '.join(SPACES)} (got {space!r})")
+    built_at = raw.get("built_at")
+    return CollectionInfo(name, count, model, dimension, space, built_at if isinstance(built_at, str) else None,
+                          _file_entries(where, raw.get("files")), _file_entries(where, raw.get("store_files")))
+
+
+def _file_entries(where: str, raw: Any) -> tuple[FileEntry, ...]:
+    if raw is not None and not isinstance(raw, list):
+        raise KnowledgeError(f"{where}: file lists must be lists (got {raw!r})")
     files = []
-    for entry in raw.get("files") or []:
+    for entry in raw or []:
         if (not isinstance(entry, dict) or not isinstance(entry.get("name"), str) or not entry["name"]
                 or "/" in entry["name"] or entry["name"] in (".", "..") or not _is_int(entry.get("bytes"))
                 or not SHA256.match(str(entry.get("sha256", "")))):
             raise KnowledgeError(f"{where}: file entries need name (no folder), bytes and sha256 (got {entry!r})")
         files.append(FileEntry(entry["name"], entry["bytes"], entry["sha256"]))
-    built_at = raw.get("built_at")
-    return CollectionInfo(name, count, model, dimension, space, built_at if isinstance(built_at, str) else None,
-                          tuple(files))
+    return tuple(files)
 
 
 def read_manifest(db_dir: Path) -> dict[str, CollectionInfo] | None:
@@ -98,8 +110,9 @@ def read_manifest(db_dir: Path) -> dict[str, CollectionInfo] | None:
         raise KnowledgeError(f"{path} cannot be read ({type(exc).__name__}: {exc})") from None
     if not isinstance(raw, dict) or not isinstance(raw.get("collections"), dict):
         raise KnowledgeError(f"{path} must contain {{\"collections\": {{...}}}}")
-    if raw.get("format", FORMAT) != FORMAT:
-        raise KnowledgeError(f"{path}: format {raw.get('format')!r} is not known (this Champion reads {FORMAT})")
+    if raw.get("format", 1) not in READ_FORMATS:
+        raise KnowledgeError(f"{path}: format {raw.get('format')!r} is not known "
+                             f"(this Champion reads {', '.join(map(str, READ_FORMATS))})")
     return {name: _collection(name, entry) for name, entry in raw["collections"].items()}
 
 

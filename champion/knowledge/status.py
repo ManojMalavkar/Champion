@@ -1,12 +1,12 @@
 """Checks of the knowledge layer (M1): ``champion kb status`` and ``champion doctor``.
 
-For every declared knowledge base: the root (inside the project, no link), each database
-folder (``chroma.sqlite3``, ``MANIFEST.json``), each collection (present, count equal to
-the manifest, model equal to the declared one) and each embedding model (in the local
-cache). With ``verify=True`` the source files are also compared with the SHA-256 in the
-manifest. Missing data is a WARN (the agent then says it cannot search); a wrong count,
-model or changed file is a FAIL. Opening a database follows the read-only rules of
-``store`` (fingerprint before and after).
+For every declared knowledge base: the root (inside the project, no link), each store
+folder (``MANIFEST.json``), each collection (built, files matching the manifest and each
+other, model equal to the declared one) and each embedding model (in the local cache).
+With ``verify=True`` the source files are also compared with the SHA-256 in the manifest.
+Missing data is a WARN (the agent then says it cannot search); a wrong count, model or
+changed file is a FAIL. Collections are opened read only (``store``). Old Chroma folders
+(``vector_db*``) are listed as backups and never opened.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from champion.knowledge.embedding import model_in_cache
-from champion.knowledge.manifest import file_problems, read_manifest
+from champion.knowledge.manifest import MANIFEST, file_problems, read_manifest
 from champion.knowledge.registry import knowledge_specs
 from champion.knowledge.root import KnowledgeError, resolve_root
-from champion.knowledge.store import SQLITE, store_for
+from champion.knowledge.store import store_for
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
 
@@ -43,7 +43,7 @@ def knowledge_status(config: Any, agent: str | None = None, verify: bool = False
             return [StatusLine("Knowledge", FAIL, f"no knowledge base is declared for {agent}")]
         return [StatusLine("Knowledge", OK, "no agent declares a knowledge base")]
     lines: list[StatusLine] = []
-    chroma = _has("chromadb")
+    numpy = _has("numpy")
     models: dict[str, list[str]] = {}
     for spec in specs:
         for item in spec.collections:  # the model is checked even when the database is missing
@@ -55,7 +55,7 @@ def knowledge_status(config: Any, agent: str | None = None, verify: bool = False
             continue
         if not root.path.is_dir():
             lines.append(StatusLine(f"Knowledge {spec.agent}", WARN, f"root {root.path} does not exist; "
-                                    "put the knowledge-base and vector_db folders there"))
+                                    "put the knowledge-base folder there and build with champion kb build"))
             continue
         lines.append(StatusLine(f"Knowledge {spec.agent}", OK, str(root.path)))
         for database in sorted({c.database for c in spec.collections}):
@@ -65,46 +65,47 @@ def knowledge_status(config: Any, agent: str | None = None, verify: bool = False
             if db.is_symlink():
                 lines.append(StatusLine(label, FAIL, f"{db} is a symbolic link; links are not followed"))
                 continue
-            if not (db / SQLITE).is_file():
-                lines.append(StatusLine(label, WARN, f"no {SQLITE} in {db}; build with champion kb build "
+            if not (db / MANIFEST).is_file():
+                lines.append(StatusLine(label, WARN, f"no knowledge store in {db} yet; build with champion kb build "
                                         f"--agent {spec.agent}"))
                 continue
             try:
-                manifest = read_manifest(db)
+                manifest = read_manifest(db) or {}
             except KnowledgeError as exc:
                 lines.append(StatusLine(label, FAIL, str(exc)))
                 continue
-            lines.append(StatusLine(label, OK if manifest is not None else WARN,
-                                    str(db) if manifest is not None
-                                    else f"{db}: no MANIFEST.json, so counts and model are not checked"))
+            lines.append(StatusLine(label, OK, str(db)))
             store = store_for(db, bool(config.get("knowledge.verify_hash", True)))
             for item in items:
                 name = f"Collection {spec.agent}/{item.name}"
-                info = (manifest or {}).get(item.name)
+                info = manifest.get(item.name)
+                if info is None:
+                    lines.append(StatusLine(name, WARN, f"not built yet; build with champion kb build --agent "
+                                            f"{spec.agent} --collection {item.name}"))
+                    continue
                 problems = []
-                if manifest is not None and info is None:
-                    problems.append("not in MANIFEST.json")
-                if info is not None and info.model != item.model:
+                if info.model != item.model:
                     problems.append(f"built with {info.model}, the agent uses {item.model}")
-                if info is not None and verify:
+                if verify:
                     problems += file_problems(info, root.kb_dir)
                 count = None
-                if open_databases and chroma:
+                if open_databases and numpy:
                     try:
                         count = store.count(item.name)
                     except KnowledgeError as exc:
                         problems.append(str(exc))
-                    if count is not None and info is not None and count != info.count:
-                        problems.append(f"{count} entries, MANIFEST.json says {info.count}")
                 if problems:
                     lines.append(StatusLine(name, FAIL, "; ".join(problems)))
                     continue
                 facts = [f"{count} entries" if count is not None else
-                         ("not opened (chromadb not installed)" if not chroma else "not opened")]
-                facts.append(f"model {item.model}" + (f" ({info.dimension}, {info.space})" if info else ""))
-                if verify and info is not None:
+                         ("not opened (numpy not installed)" if not numpy else "not opened")]
+                facts.append(f"model {item.model} ({info.dimension}, {info.space})")
+                if verify:
                     facts.append(f"{len(info.files)} source file(s) match")
                 lines.append(StatusLine(name, OK, ", ".join(facts)))
+        for old in root.old_databases():
+            lines.append(StatusLine(f"Knowledge {spec.agent}/{old}", OK,
+                                    f"{root.path / old}: old Chroma database (backup, not used)"))
     st = _has("sentence_transformers")
     for model in sorted(models):
         used = ", ".join(models[model])

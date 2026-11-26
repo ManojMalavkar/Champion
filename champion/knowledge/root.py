@@ -5,6 +5,10 @@ in the project folder when the key is empty or missing. A root must be inside th
 project folder (PLAN.md, "Knowledge base layout") and is not reached through a
 symbolic link. The root itself is never written by the search side; only
 ``champion kb build`` (the user, on the command line) writes into it.
+
+Store folders in the root are named ``index`` or ``index_<name>`` (CR-4). Folders named
+``vector_db`` / ``vector_db_<name>`` are old Chroma databases: they are never opened or
+written and cannot be named as a store; ``champion kb status`` lists them as backups.
 """
 
 from __future__ import annotations
@@ -16,8 +20,9 @@ from pathlib import Path
 from typing import Any
 
 KB_FOLDER = "knowledge-base"
-DEFAULT_DATABASE = "vector_db"
-DATABASE_NAME = re.compile(r"^vector_db(_[a-z0-9_]{1,40})?$")
+DEFAULT_DATABASE = "index"
+DATABASE_NAME = re.compile(r"^index(_[a-z0-9_]{1,40})?$")
+OLD_DATABASE_NAME = re.compile(r"^vector_db(_[a-z0-9_]{1,40})?$")  # old Chroma databases (backups)
 AGENT_NAME = re.compile(r"^[a-z][a-z0-9_]{1,30}$")
 
 
@@ -37,16 +42,23 @@ class KnowledgeRoot:
 
     def db_dir(self, name: str = DEFAULT_DATABASE) -> Path:
         if not DATABASE_NAME.match(name or ""):
-            raise KnowledgeError(f"database folder {name!r}: use vector_db or vector_db_<name> "
+            raise KnowledgeError(f"store folder {name!r}: use index or index_<name> "
                                  "(lowercase letters, digits, _)")
         return self.path / name
 
-    def databases(self) -> list[str]:
-        """Database folders that exist in the root (links are left out)."""
+    def _folders(self, pattern: re.Pattern) -> list[str]:
         if not self.path.is_dir():
             return []
         return sorted(p.name for p in self.path.iterdir()
-                      if DATABASE_NAME.match(p.name) and p.is_dir() and not p.is_symlink())
+                      if pattern.match(p.name) and p.is_dir() and not p.is_symlink())
+
+    def databases(self) -> list[str]:
+        """Store folders that exist in the root (links are left out)."""
+        return self._folders(DATABASE_NAME)
+
+    def old_databases(self) -> list[str]:
+        """Old Chroma database folders in the root (backups; never opened)."""
+        return self._folders(OLD_DATABASE_NAME)
 
 
 def _inside(path: Path, folder: Path) -> bool:
