@@ -1792,7 +1792,7 @@ Format: `CR-n (track, date): what - why - status`.
 
 ### P.7 Track status
 
-* T1 PyDyna: T1.0 records and the 5 tools built on `track/pydyna` (not committed); CR-1 done, merges `main` next; search through a track-local stub until M1. Plan: `docs/tracks/pydyna.md`
+* T1 PyDyna (27 Nov 2026, `track/pydyna` at `22b71bb`, merged `main` `88d2fe1`): T1.0, T1.1a, T1.1 (keyword lookup on M1), T1.2a/b (PyDyna API catalog and script check), T1.3a/b (PyDPF catalog, operators, script check; source-data generator) committed. T1.1 CR-4 follow-up done: four collections built from the JSONL into `index` (`lsdyna_keywords` 3686, `pydyna_api` 36937, `pydpf_post` 1352) and `index_dpf_core` (`pydpf_core` 12678, generated `*_pb2.py` modules dropped); old `vector_db*` kept as backups, checksums unchanged. Linux: 633 passed. Next: T1.2 PyDyna Code agent, T1.3 PyDPF-Post agent; T1.4 waits for M3. Plan: `docs/tracks/pydyna.md`
 * T2 HPC: branch created; T2.0 can start, T2.1 waits for M2. Plan: `docs/tracks/hpc.md`
 * T3 ANSA/META: branch created; not started (waits for M1). Plan: `docs/tracks/ansa-meta.md`
 * T4 PRIMER: branch created; not started (waits for M1). Plan: `docs/tracks/primer.md`
@@ -1826,7 +1826,7 @@ Decisions (user, 24 Nov 2026): (1) Chroma opened in place read-only, stop if any
 - [ ] Local check (user, Linux machine): `pytest -q` 377 passed; `champion kb status --agent pydyna` on the real databases (after the track change); `champion chat` start line unchanged.
 - [x] Linux check 25 Nov 2026 (T1.1): `kb status --agent pydyna` changed both `chroma.sqlite3` files (chromadb 1.5.9 writes on every open). Decision 1 replaced by CR-4 (P.6).
 - [x] CR-4 built 26 Nov 2026: `store.py` and `builder.py` without Chroma (`.npy` + SQLite, read only, exact search), manifest format 2 with `store_files`, store folders `index` / `index_<name>`, `--allow-foreign` removed, extras without chromadb; `tests/test_knowledge.py` 47 tests, none needs Chroma; 478 pass on serverless. Committed and pushed 26 Nov 2026 ("CR-4").
-- [ ] CR-4 local check (user, Linux machine, after the T1 track follow-up): backup checksums, `pytest -q`, `kb build --agent pydyna`, `kb status --agent pydyna --verify`, four searches, backup checksums unchanged (list in the CR-4 step doc).
+- [x] CR-4 local check (user, Linux machine, 27 Nov 2026, on `track/pydyna` `f2b87c9` with `main` `88d2fe1` merged): `pytest -q` 627 passed, 0 skipped; `kb build --agent pydyna` built all four collections; `kb status --agent pydyna --verify` all OK, `vector_db*` shown as backups; four searches through the PyDyna tools; 53 backup files, checksums unchanged. `pydyna_api` 36937 and `pydpf_post` 1352 (old 62328 / 1719 also held test and codegen records the search dropped; now filtered at build). Details: `docs/steps/pydyna-08-cr4-store.md` on the track.
 
 #### M2 status: program tools (built 25 Nov 2026, committed on `main`, push after review)
 Decisions (user, 24-25 Nov 2026), replacing the defaults below where they differ:
