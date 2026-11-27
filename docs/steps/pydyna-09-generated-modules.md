@@ -39,6 +39,16 @@ Finding of the CR-4 follow-up Linux check (docs/steps/pydyna-08-cr4-store.md): `
 4. `ch kb status --agent pydyna --verify`: all OK, counts as in step 2.
 5. The energy search again (`search_pydpf_core`, "global internal energy from d3plot"): no `_pb2` hit.
 
+## Linux results (27 Nov 2026, `0fc779c`)
+
+| Check | Result |
+| --- | --- |
+| 1. pytest | 633 passed, 0 skipped |
+| 2. counts | `pydpf_core` 12678 (13014 - 336); `pydyna_api` 36937 and `pydpf_post` 1352 unchanged (no such files there) |
+| 3. rebuild | only `pydpf_core` with `--replace`: 12678 entries, 384, l2 |
+| 4. status --verify | all OK; backups shown as old Chroma databases (backup, not used) |
+| 5. energy search | no `_pb2` hit; the fifth hit is now `operators/result/global_eroded_internal_energy.py` (was `available_result_pb2.py`) |
+
 ## Status
 
-Built and committed 27 Nov 2026 (user OK), pushed to `track/pydyna` (author ManojMalavkar). Next: the Linux checks above.
+Built and committed 27 Nov 2026 (user OK), pushed to `track/pydyna` (author ManojMalavkar). Linux checks done 27 Nov 2026, all passed.
