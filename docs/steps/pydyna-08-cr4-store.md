@@ -44,6 +44,21 @@ Run Champion as `python -c "import sys; from champion.cli import main; sys.exit(
 6. Four searches through the PyDyna tools (keyword with `category="material"`, PyDyna API, PyDPF-Post, PyDPF-Core): hits with source and distance, no `tests/` paths.
 7. Backup checksums after: `... > /tmp/backup_after.txt && diff /tmp/backup_before.txt /tmp/backup_after.txt` (expected: no output).
 
+## Linux results (27 Nov 2026, `f2b87c9`)
+
+| Check | Result |
+| --- | --- |
+| 2. pytest | 627 passed, 0 skipped |
+| 3. build | all four built, 384, l2 |
+| 4. status --verify | all OK, source files match; `vector_db`, `vector_db_dpf_core` shown as old Chroma databases (backup, not used) |
+| 5. counts | `lsdyna_keywords` 3686 and `pydpf_core` 13014 equal; `pydyna_api` 36937 (old 62328) and `pydpf_post` 1352 (old 1719) |
+| 6. searches | four searches with source and distance; no `tests/` or `codegen/` paths; keyword hits with `category="material"` all `*MAT_*` |
+| 7. backups | 53 files, checksums unchanged |
+
+The two smaller counts are explained: the old Chroma databases held every JSONL record and the search dropped test, codegen and repository hits afterwards; the new build applies the same `records.py` filters (`keep_api_path`, `keep_code_path`) before storing. Checked on the JSONL: `pydyna_api` 62328 = 36937 kept + 25391 dropped (codegen 15467, tests 9735, .github 48, agents 47, doc 41, benchmarks 28, ...); `pydpf_post` 1719 = 1352 + 367 (tests 302, .github 36, examples 7, doc 4, ...). `pydpf_core` was already filtered by the old builder. So the search sees the same records as before (same filter), only the store holds fewer; old and new hits were not compared one by one.
+
+Finding: `search_pydpf_core` can return generated protobuf modules (`src/ansys/grpc/dpf/*_pb2.py`), which `keep_code_path` keeps. Not changed here; dropping them is a separate step (changes the `pydpf_core` count, needs a rebuild with `--replace`).
+
 ## Status
 
-Built and committed 26 Nov 2026 (user OK), pushed to `track/pydyna` together with the merge of main `88d2fe1` (author ManojMalavkar). Next: the Linux checks above.
+Built and committed 26 Nov 2026 (user OK), pushed to `track/pydyna` together with the merge of main `88d2fe1` (author ManojMalavkar). Linux checks done 27 Nov 2026, all passed.
