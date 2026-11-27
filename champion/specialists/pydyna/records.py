@@ -68,6 +68,9 @@ CODE_META_NAMES = frozenset({
     "CODE_OF_CONDUCT", "CONTRIBUTING", "CONTRIBUTORS", "AUTHORS", "SECURITY",
     "LICENSE", "CHANGELOG", "CHANGES", "PULL_REQUEST_TEMPLATE", "ISSUE_TEMPLATE",
 })
+# ... and never generated gRPC/protobuf modules (``protoc`` output: serialized descriptors, no API to use;
+# 336 of 13014 pydpf_core records, 52 files under src/ansys/grpc/dpf/; user, 27 Nov 2026).
+GENERATED_ENDINGS = ("_pb2.py", "_pb2_grpc.py")
 
 # Field types of the schema (extract_lsdyna_keywords.py TYPE_NAMES) -> Python types.
 _TYPE_CHECKS = {
@@ -260,11 +263,14 @@ def api_documents(kb_dir: Path) -> list[Document]:
 
 def keep_code_path(source_path: str) -> bool:
     """True for source, docs and examples (``src/``, ``doc/``, ``docs/``, ``examples/``); False for
-    tests, ``codegen/``, files at the top of the repository and repository meta files."""
+    tests, ``codegen/``, files at the top of the repository, repository meta files and generated
+    protobuf modules (``*_pb2.py``, ``*_pb2_grpc.py``)."""
     path = PurePosixPath(source_path or "")
     if len(path.parts) < 2 or path.parts[0] not in CODE_FOLDERS:
         return False
     if path.suffix.lower() not in CODE_SUFFIXES or any(part.startswith(".") for part in path.parts):
+        return False
+    if path.name.lower().endswith(GENERATED_ENDINGS):
         return False
     return path.stem.upper() not in CODE_META_NAMES
 

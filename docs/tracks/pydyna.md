@@ -119,7 +119,7 @@ Numbers start at CR-4: `main` already has CR-2 (T8 Memory, M6 hook) and CR-3 (T7
 For M1: `knowledge/*/vector_db/` in the root `.gitignore` (not ignored now; excluded locally through `.git/info/exclude`); the `pydyna` config section moved out of `config.py` `DEFAULTS`; optional dependency group `pydyna` lists chromadb and sentence-transformers without upper limits (local: 1.5.9 and 5.6.1).
 
 ## Pending local checks
-T1.3a and T1.3b done (24 Nov 2026; see Findings; tests 145 / 494). T1.1 CR-4 follow-up Linux checks done 27 Nov 2026, all passed (docs/steps/pydyna-08-cr4-store.md). The old databases were not rebuilt or changed (checksums equal): CR-4 builds new stores next to them (user, 25 Nov 2026). Open finding: generated `*_pb2.py` modules in `pydpf_core` hits.
+T1.3a and T1.3b done (24 Nov 2026; see Findings; tests 145 / 494). T1.1 CR-4 follow-up Linux checks done 27 Nov 2026, all passed (docs/steps/pydyna-08-cr4-store.md). The old databases were not rebuilt or changed (checksums equal): CR-4 builds new stores next to them (user, 25 Nov 2026). Generated `*_pb2.py` modules in `pydpf_core` hits (336 records, 52 files): dropped by `keep_code_path` (built and committed 27 Nov 2026, user OK; docs/steps/pydyna-09-generated-modules.md); needs a `pydpf_core` rebuild with `--replace` on Linux after the commit.
 
 ## Findings and live checks
 * 24 Nov 2026, T1.1 in progress: user's M1 merge pulled; the two missing-config-section tests now pass. Seven new M1 cases pass; track suite 147 passed, 5 skipped. Full suite 521 passed, 3 failed, 5 skipped. CR-1 hides agents but not their config/knowledge registrations; needs a main update. Details and remaining work: docs/steps/pydyna-07-m1-integration.md. Nothing committed; databases untouched.

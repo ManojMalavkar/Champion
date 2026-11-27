@@ -21,7 +21,8 @@ Run it on the machine that keeps the knowledge data (nothing is uploaded anywher
   data matches the API catalog; ``--ref`` gives another tag or branch, ``--source`` an existing
   checkout instead of cloning (``git clone --depth 1``).
 * Files kept: the same rule as the search (``records.keep_code_path``): ``.py``, ``.rst``, ``.md``
-  under ``src/``, ``doc/``, ``docs/``, ``examples/``; no tests, hidden folders or repository files.
+  under ``src/``, ``doc/``, ``docs/``, ``examples/``; no tests, hidden folders, repository files or
+  generated protobuf modules (``*_pb2.py``, ``*_pb2_grpc.py``).
   ``--exclude`` drops more (glob on the repository path).
 * Chunks of at most 1800 characters (what the search tools show of a hit), cut at ``class`` /
   ``def`` lines (Python), headings (Markdown, reStructuredText), never inside a Markdown code

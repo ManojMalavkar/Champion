@@ -112,6 +112,10 @@ def test_single_source_file_is_used_when_there_are_no_parts(tmp_path):
     ("src/.hidden/x.py", False), ("src/ansys/dyna/core/data.json", False),
     ("src/ansys/dpf/post/simulation.py", True), ("examples/01-basics/01-energy.py", True),
     ("doc/source/index.rst", True), ("docs/guide.md", True),
+    # generated protobuf modules (27 Nov 2026); other modules in the same folder stay
+    ("src/ansys/grpc/dpf/available_result_pb2.py", False), ("src/ansys/grpc/dpf/base_pb2_grpc.py", False),
+    ("src/ansys/grpc/dpf/FIELD_PB2.PY", False), ("src/ansys/grpc/dpf/__init__.py", True),
+    ("src/ansys/dpf/core/pb2_helpers.py", True), ("src/ansys/dpf/core/my_pb2.pyc", False),
 ])
 def test_code_path_filter(path, keep):
     assert rec.keep_code_path(path) is keep
