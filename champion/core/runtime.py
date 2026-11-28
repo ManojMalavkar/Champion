@@ -44,7 +44,7 @@ from agents import (Agent, OpenAIChatCompletionsModel, OpenAIResponsesModel, Run
 from agents.models.interface import Model
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
-from champion.core.config import PLACEHOLDER_MODEL, Config, get_openai_api_key
+from champion.core.config import PLACEHOLDER_MODEL, Config, get_openai_api_key, model_api
 from champion.core.context import ChampionContext
 from champion.core.hooks import ToolEvent, ToolEventRecorder
 from champion.storage.audit import AuditLog
@@ -69,7 +69,7 @@ def build_model(config: Config, client: AsyncOpenAI) -> Model:
     model_id = config.get("llm.model_id")
     if model_id == PLACEHOLDER_MODEL:
         raise RuntimeSetupError("llm.model_id is not set in config.yaml; run 'champion doctor'")
-    if config.get("llm.provider") == "databricks":
+    if model_api(config) == "chat":
         return OpenAIChatCompletionsModel(model=model_id, openai_client=client)
     return OpenAIResponsesModel(model=model_id, openai_client=client)
 
