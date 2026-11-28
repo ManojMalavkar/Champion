@@ -170,11 +170,14 @@ DPF_CORE = SpecialistSpec(
 PYDYNA = register_specialist(SpecialistSpec(
     name="pydyna",
     title="PyDyna",
-    description=("PyDyna and LS-DYNA knowledge specialist: LS-DYNA keyword cards and fields, material and "
-                 "contact choice, checking card parameters, PyDyna (ansys-dyna-core) code for building decks, "
-                 "PyDPF-Post and PyDPF-Core code for d3plot / binout results. Answers from its knowledge base with sources; "
-                 "it writes PyDyna scripts into the working folder and checks PyDyna and PyDPF scripts against the "
-                 "installed APIs without running them; it does not read the user's model files or run scripts yet."),
+    # T1.2 Linux live check (28 Nov 2026): "Write a PyDyna script shell_part.py ..." went to the Linux agent
+    # with code the orchestrator wrote itself (an API that does not exist); script writing now comes first.
+    description=("PyDyna specialist: send it every request to write, save, change or check a PyDyna "
+                 "(ansys-dyna-core), PyDPF-Post or PyDPF-Core script, with the user's goal and file name, never "
+                 "with code you wrote: it writes the script into the working folder from checked templates and the "
+                 "installed API and checks it without running it. Also LS-DYNA keyword cards and fields, material "
+                 "and contact choice, checking card parameters, and d3plot / binout post-processing code; answers "
+                 "from its knowledge base with sources. It does not read the user's model files or run scripts yet."),
     instructions="""You are PyDyna. You lead four sub-agents and send each part of the task to the right one:
 - keyword: LS-DYNA keyword cards, fields, material / contact / section choice, parameter checks.
 - code: PyDyna (ansys-dyna-core) scripts that build or change decks: written into the working
@@ -190,5 +193,6 @@ Champion, keep their sources, and never add facts they did not report.""",
     config_path_keys=("knowledge_root", "database_path", "keyword_reference_path", "dpf_core_database_path"),
     members=(KEYWORD, CODE, DPF_POST, DPF_CORE),
     routing_hints=("which fields does *MAT_024 have", "which contact type for a crash box",
-                   "write a PyDyna script for a shell part", "plot energies from d3plot with PyDPF-Post"),
+                   "write a PyDyna script shell_part.py that builds a deck with one shell part",
+                   "save the PyDyna script as build_deck.py", "plot energies from d3plot with PyDPF-Post"),
 ))

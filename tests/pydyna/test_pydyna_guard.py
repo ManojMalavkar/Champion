@@ -195,6 +195,23 @@ def test_written_script_is_listed_in_changes_and_undo_removes_it(setup):
     assert " undone " in last_changes and "[undone by #2]" in last_changes
 
 
+# ------------------------------------------------------------------ routing (Linux live check, 28 Nov 2026)
+
+def test_orchestrator_sends_pydyna_script_writing_to_pydyna_with_the_goal_not_its_own_code():
+    """Live: 'Write a PyDyna script shell_part.py ...' went to the Linux agent with code the orchestrator
+    wrote itself (dyn.Model(), not in PyDyna), so the guard and the templates were never used."""
+    from champion.agents.orchestrator import orchestrator_instructions
+    from champion.specialists.linux import LINUX
+
+    text = orchestrator_instructions([LINUX, PYDYNA])
+    entry = next(line for line in text.splitlines() if line.startswith("- pydyna_agent"))
+    assert entry.startswith("- pydyna_agent (PyDyna): PyDyna specialist: send it every request to write, save, "
+                            "change or check a PyDyna")
+    assert "with the user's goal and file name, never with code you wrote" in entry
+    assert '"write a PyDyna script shell_part.py that builds a deck with one shell part"' in text
+    assert '"save the PyDyna script as build_deck.py"' in text
+
+
 # ------------------------------------------------------------------ nothing that runs
 
 def test_code_agent_runs_nothing_and_takes_no_programs(setup):

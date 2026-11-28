@@ -85,8 +85,9 @@ trusted program to any agent its manifest entry names. Checked: a trusted entry 
 `agent: pydyna_code` is attached as `program_echo_args` without a problem line. Today the Code
 agent has none only because no entry names it (tested with the default, empty program
 folder). The track cannot refuse it without a core change; the Code spec declares
-`extra={"programs": False}`. Request CR-5 on `main`: `attach_program_tools` refuses agents with
-that flag ("agent X takes no programs"). **Mandatory before T1.4** (running scripts).
+`extra={"programs": False}` as a placeholder. CR-5 on `main` (approved by the user, 28 Nov 2026)
+replaces it with `accepts_program_tools=False`; it is **mandatory before T1.4** (running
+scripts) and is not implemented in this track (shared M2/core policy). See Open before T1.4.
 
 ## Templates
 
@@ -173,7 +174,22 @@ part has the part definition; geometry is the user's (or a later template).
 
 ## Acceptance checks on Linux (user, after the commit, before the push)
 
-The commit is not pushed yet (decision 10). It comes as a Git bundle,
+The commit is not pushed yet (decision 10).
+
+| Item | Value |
+| --- | --- |
+| T1.2 commit | `bbaa7a0` (`bbaa7a060073099c983196aa8687e734fc300433`), ManojMalavkar, local branch `t1.2-review` |
+| Base merge | `582fc8f` (merge of `main` `c7cbea5`; already on `origin/track/pydyna`) |
+| Bundle | `/Workspace/Users/t0018k6@inetpsa.com/Champion-t1.2.bundle` (28764 bytes; ref `refs/heads/t1.2-review` -> `bbaa7a0`; requires `582fc8f`) |
+| Bundle SHA-256 | `89552fd704279cad84b36e3402bdbe56d9953606ec05d9df2c710a328c22698d` (also in `Champion-t1.2.bundle.sha256` next to it) |
+| Bundle checked (28 Nov 2026) | `git bundle verify`: okay; `sha256sum -c`: OK; a fresh clone at `582fc8f` fast-forwards to `bbaa7a0`, same tree `44e801b` |
+| Linux tests | **pending** (user) |
+| Live level-1.2 chat with `/changes` and `/undo` | **pending** (user) |
+
+After both pass, the same commit is pushed unchanged: `git push origin bbaa7a0:refs/heads/track/pydyna`
+(fast-forward from `582fc8f`). No `review/t1.2` branch is created.
+
+The commit comes as a Git bundle,
 `/Workspace/Users/t0018k6@inetpsa.com/Champion-t1.2.bundle` (download it from the workspace
 browser, or `databricks workspace export /Users/t0018k6@inetpsa.com/Champion-t1.2.bundle --file
 ~/Champion-t1.2.bundle --format AUTO`). Fast-forwarding to it gives the same commit that is
@@ -186,6 +202,7 @@ One paste (venv, bundle, tests, both templates in a disposable folder); set `BUN
 BUNDLE=~/Champion-t1.2.bundle && \
 source ~/.ansa_meta_copilot/.venv/bin/activate && \
 cd /nobackup/people/t0018k6/script/Github_repo/LLM/Champion-pydyna && \
+echo "89552fd704279cad84b36e3402bdbe56d9953606ec05d9df2c710a328c22698d  $BUNDLE" | sha256sum -c - && \
 git pull --ff-only && git bundle verify "$BUNDLE" && \
 git fetch "$BUNDLE" t1.2-review && git merge --ff-only FETCH_HEAD && \
 git log --oneline -1 && \
@@ -203,7 +220,8 @@ cd "$T" && for f in deck_skeleton material_section_part; do python $f.py || echo
 ls -l "$T" && grep -c '^\*' *.k && grep '^\*' material_section_part.k && cd "$REPO"
 ```
 
-Expected: `pytest` all passed, 0 skipped; `wrote .../deck_skeleton.k` and
+Expected: `...: OK` for the SHA-256; `git log` shows `bbaa7a0`; `pytest` all passed, 0 skipped;
+`wrote .../deck_skeleton.k` and
 `wrote .../material_section_part.k`; 8 and 6 lines starting with `*`; `*KEYWORD`, `*TITLE`,
 `*MAT_024`, `*SECTION_SHELL`, `*PART`, `*END`.
 
@@ -245,10 +263,55 @@ Report back: the one-paste output (last lines), and for the chat the tool lines 
 
 ## Open before T1.4 (mandatory)
 
-* CR-5 on `main`: `attach_program_tools` refuses agents that declare
-  `extra={"programs": False}` (limitation under What changed).
+* CR-5 on `main`, approved by the user (28 Nov 2026), mandatory before T1.4; a shared M2/core
+  policy change, so not implemented in this track:
+  * agents can declare `accepts_program_tools=False` (a `SpecialistSpec` field);
+  * M2 (`attach_program_tools`) never attaches trusted program tools to such an agent;
+  * `pydyna_code` uses this restriction (replacing the `extra={"programs": False}` placeholder);
+  * a track or a program manifest cannot override it;
+  * fail-closed tests (a trusted entry for such an agent is not attached, also when the flag
+    is missing or malformed in a way that would otherwise allow it);
+  * a skipped attachment is reported by `champion programs check` or `champion doctor`.
+
+## Acceptance results (user, Linux, 28 Nov 2026)
+
+The user changed the order: `bbaa7a0` was pushed unchanged to `track/pydyna` (`582fc8f..bbaa7a0`)
+before the checks; Linux pulled it (fast-forward from `0fc779c`).
+
+* Tests: `675 passed` in 130 s, 0 skipped.
+* Templates: written with SHA-256 `3850ebf65a6b` / `bd773b80249a` (as recorded); run by hand
+  they wrote `deck_skeleton.k` (8 keyword lines) and `material_section_part.k` (6: `*KEYWORD`,
+  `*TITLE`, `*MAT_024`, `*SECTION_SHELL`, `*PART`, `*END`). Passed.
+* Chat start: failed first with "CHAMPION_CONFIG points to a missing file": the untracked link
+  `config/config.yaml -> ../Champion/config/config.yaml` (21 Nov) was broken (relative to
+  `config/`, one `..` short). Fixed by the user: `../../Champion/config/config.yaml`. Not a T1.2
+  problem.
+* Live chat (`atlas/gpt-oss-120b`, level 1.2): **failed**. The orchestrator wrote a script
+  itself (`dyn.Model()`, `add_material` ...: an API not in ansys-dyna-core) and sent "create
+  shell_part.py with this content" to `linux_coder_agent`, which wrote it with its core
+  `file_create`. PyDyna, the templates, both checks and the guard were never called. "Save the
+  same script as pandas.py" also went to Linux and was written (the guard covers only the Code
+  sub-agent). `/changes` and `/undo` worked (`#2 undone`, `[undone by #2]`).
+
+Cause: the PyDyna description began with "knowledge specialist" and named script writing
+late; the Linux description says "create new text files"; no orchestrator rule forbids writing
+a script itself and sending it as file content.
+
+Fix in this track (T1.2.1, 28 Nov 2026, not committed): the PyDyna description now begins
+"send it every request to write, save, change or check a PyDyna, PyDPF-Post or PyDPF-Core
+script, with the user's goal and file name, never with code you wrote"; routing hints
+"write a PyDyna script shell_part.py that builds a deck with one shell part" and "save the
+PyDyna script as build_deck.py". Test: the orchestrator's PyDyna entry and hints (fails with
+the old text). Serverless: 663 passed, 13 skipped. The routing itself can only be shown by a
+live re-run.
+
+Proposed for `main` (needs the user's OK; shared core): CR-6 orchestrator rule "never write
+code or file content for a specialist; send the user's goal", so no agent receives code the
+orchestrator invented. Open question: the Linux and Coder agents' `file_create` can still write a
+`.py` that shadows a module (`pandas.py`); the path guard is only in the PyDyna Code sub-agent.
 
 ## Status
 
-Built 28 Nov 2026 with the follow-up (decisions 6-10). Committed locally (branch
-`t1.2-review`), not pushed: waiting for the acceptance checks above.
+T1.2 `bbaa7a0` pushed 28 Nov 2026 (user decision). Linux tests and templates passed; the live
+level-1.2 chat failed on routing (above). T1.2.1 routing fix built, not committed; then the
+live chat again. CR-5 approved, mandatory before T1.4.
