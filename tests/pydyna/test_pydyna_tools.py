@@ -26,7 +26,9 @@ from champion.tools.guard import ToolError, run_guarded
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "knowledge-base"
 TOOL_NAMES = ["lookup_keyword", "validate_keyword_params", "search_keyword", "search_pydyna_api", "search_pydpf_post",
               "lookup_api", "check_pydyna_script", "lookup_dpf_api", "find_dpf_operators", "check_dpf_script",
-              "search_pydpf_core"]
+              "search_pydpf_core", "pydyna_template"]
+# T1.2 (user, 28 Nov 2026): the Code sub-agent uses the core file tools, no PyDyna write tool
+CORE_TOOL_RIGHTS = {"file_create": "edit", "file_edit": "edit", "file_write": "edit", "code_check": "read"}
 
 
 @pytest.fixture
@@ -85,17 +87,22 @@ def test_pydyna_group_has_four_sub_agents_and_every_tool_a_policy_entry():
     assert [m.title for m in PYDYNA.members] == ["Keyword", "Code", "DPF-Post", "DPF-Core"]
     assert PYDYNA.members[0].tool_names == ["lookup_keyword", "search_keyword", "validate_keyword_params",
                                             "lookup_api"]
-    assert PYDYNA.members[1].tool_names == ["lookup_api", "search_pydyna_api", "lookup_keyword",
-                                            "check_pydyna_script"]
+    assert PYDYNA.members[1].tool_names == ["pydyna_template", "lookup_api", "search_pydyna_api", "lookup_keyword",
+                                            "check_pydyna_script", "file_create", "file_edit", "file_write",
+                                            "code_check"]
     assert PYDYNA.members[2].tool_names == ["search_pydpf_post", "lookup_dpf_api", "find_dpf_operators",
                                             "check_dpf_script"]
     assert PYDYNA.members[3].tool_names == ["search_pydpf_core", "lookup_dpf_api", "find_dpf_operators",
                                             "check_dpf_script"]
     used = {name for spec in walk_specs(PYDYNA) for name in spec.tool_names}
-    assert used == set(TOOL_NAMES)
+    assert used == set(TOOL_NAMES) | set(CORE_TOOL_RIGHTS)
     for name in TOOL_NAMES:
         rule = rule_for(name)
         assert rule.right == "none" and rule.approval == "never" and not rule.sends_data_out
+    for name, right in CORE_TOOL_RIGHTS.items():  # the core rules, unchanged by the track
+        assert rule_for(name).right == right and not rule_for(name).sends_data_out
+    for member in (PYDYNA.members[0], PYDYNA.members[2], PYDYNA.members[3]):  # only Code writes
+        assert not set(member.tool_names) & set(CORE_TOOL_RIGHTS)
     assert "get_material_model" not in used and "get_contact_type" not in used  # user, 21 Nov 2026
 
 

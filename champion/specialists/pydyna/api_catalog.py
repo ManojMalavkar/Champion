@@ -50,6 +50,7 @@ KEYWORD_NAMESPACES = frozenset({  # modules that hold the keyword classes as att
     f"{PACKAGE}.keywords.keyword_classes.auto_keywords", f"{PACKAGE}.keywords.keyword_classes.manual_keywords"})
 TRIVIAL_BASES = frozenset({"object", "ABC", "abc.ABC", "Generic", "typing.Generic", "Protocol", "typing.Protocol"})
 _DETAIL_INTERNAL = ("properties", "methods", "attributes")
+_TABLE_CALLEES = ("TableCard", "TableCardGroup")  # name is the 4th positional argument
 _CARD_KINDS = {"from_field_schemas_with_defaults": "card", "TableCard": "table", "SeriesCard": "series",
                "CardSet": "card_set", "TableCardGroup": "table_group", "IncludeCard": "include"}
 
@@ -414,6 +415,11 @@ class _KeywordModule:
             card.update(name=_value(args[0]), type=_text(args[3]))
         elif "name" in keywords:
             card["name"] = _value(keywords["name"])
+        elif callee in _TABLE_CALLEES and len(element.args) > 3 and isinstance(_value(element.args[3]), str):
+            # TableCard / TableCardGroup(fields, length_func, active_func, name, ...): PyDyna takes the
+            # table name positionally, and the keyword accepts it as a constructor argument
+            # (Part(parts=df), Node(nodes=df)); found 28 Nov 2026 with the T1.2 template.
+            card["name"] = _value(element.args[3])
         card["fields"] = _fields(element, self.tuples)
         return [card]
 
@@ -503,7 +509,10 @@ class Catalog:
                     word = attrs.get("keyword", inherited[0])
                     subword = attrs["subkeyword"] if "subkeyword" in attrs else inherited[1]
                     raw[name] = (word, subword)
-                    keyword = "*" + word + ("_" + subword if subword else "") if word else None
+                    # PyDyna's KeywordBase._get_base_title: a subkeyword equal to the keyword is not
+                    # repeated (Part -> *PART, Node -> *NODE, not *PART_PART); found 28 Nov 2026.
+                    keyword = ("*" + word + ("_" + subword if subword and subword != word else "")
+                               if word else None)
                     entry = KeywordEntry(name, keyword, path, line)
                     self._by_class.setdefault(entry.class_name, []).append(entry)
                     if keyword:

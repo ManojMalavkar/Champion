@@ -14,7 +14,16 @@ search_keyword             Keyword             ``lsdyna_keywords`` (+ category)
 search_pydyna_api          Code                ``pydyna_api``
 search_pydpf_post          DPF-Post            ``pydpf_post``
 search_pydpf_core          DPF-Core            ``pydpf_core`` in its own database folder
+pydyna_template            Code                checked starter scripts as text (templates.py)
 =========================  ==================  ==================================
+
+T1.2 (user, 28 Nov 2026): the Code sub-agent also has the core tools ``file_create``,
+``file_write``, ``file_edit`` (right ``edit``: working folder, access levels, ``/changes``,
+``/undo``) and ``code_check`` (right ``read``, compiles, runs nothing); there is no PyDyna write
+tool. It writes scripts and checks them; it never runs them (T1.4, after M3). For that sub-agent
+only, ``guard.py`` wraps the three write tools and the two validators (same names): ``.py`` output
+paths only, no names that shadow a module, nothing in Champion's own package, and a code-enforced
+stop after three failed correction cycles or when a correction makes no progress.
 
 ``get_material_model`` and ``get_contact_type`` of the old agent only put
 "material model" / "contact algorithm" in front of the query (user decision
@@ -64,8 +73,11 @@ from champion.knowledge.root import KnowledgeError, resolve_root
 from champion.knowledge.tools import make_search_tool
 from champion.policy.scope import check_path, open_no_symlinks
 from champion.policy.tool_policy import ToolRule, register
-from champion.specialists.pydyna import api_catalog, api_check, dpf_catalog
+from champion.specialists.pydyna import api_catalog, api_check, dpf_catalog, guard
 from champion.specialists.pydyna import records as rec
+from champion.specialists.pydyna import templates as tpl
+from champion.tools.checks import code_check
+from champion.tools.edit import file_create, file_edit, file_write
 from champion.tools.guard import ToolError, run_guarded
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
@@ -113,8 +125,37 @@ for _rule in (
              "Check a PyDPF script against the installed ansys-dpf-post / ansys-dpf-core API (nothing is run)"),
     ToolRule("lookup_keyword", "none", "Full record of one LS-DYNA keyword from the PyDyna knowledge base"),
     ToolRule("validate_keyword_params", "none", "Check keyword card parameters against the PyDyna knowledge base"),
+    # right none: returns text kept in Champion's code (templates.py); reads no file
+    ToolRule("pydyna_template", "none", "Checked PyDyna starter script (offline Deck API) as text"),
 ):
     register(_rule)
+
+TEMPLATE_NOTE = ("Change the template for the request; check the text with check_pydyna_script (code=...) before "
+                 "writing; write it with file_create; then code_check and check_pydyna_script (path=...) on the "
+                 "file. Never run it.")
+
+
+def template_result(name: str | None) -> str:
+    """The template list (no name) or one template with its code, as JSON text."""
+    if not (name or "").strip():
+        return _json({"templates": tpl.listing(), "not_yet": list(tpl.LATER), "note": TEMPLATE_NOTE})
+    try:
+        found = tpl.get(name)
+    except KeyError as exc:
+        raise ToolError(str(exc.args[0])) from None
+    except tpl.TemplateChanged as exc:
+        raise ToolError(str(exc)) from None
+    try:
+        installed: str | None = api_catalog.installed_package()[1]
+    except api_catalog.CatalogError:
+        installed = None
+    return _json({"name": found.name, "title": found.title, "keywords": list(found.keywords),
+                  "api": "offline ansys.dyna.core Deck and keywords (no server, no DynaMech)",
+                  "api_names": list(found.api_names), "sha256": found.sha256, "provenance": found.provenance,
+                  "checked_with": [f"ansys-dyna-core {v}" for v in found.checked_with],
+                  "compatibility": tpl.compatibility(installed),
+                  "checked": "check_pydyna_script: no error and no warning (Champion tests)",
+                  "code": found.code, "note": TEMPLATE_NOTE})
 
 
 # ---------------------------------------------------------------- paths and data
@@ -353,6 +394,19 @@ async def check_pydyna_script(ctx: RunContextWrapper[ChampionContext], path: str
 
 
 @function_tool
+async def pydyna_template(ctx: RunContextWrapper[ChampionContext], name: str | None = None) -> str:
+    """Checked PyDyna (ansys-dyna-core) starter script, built only with the offline Deck and keywords
+    API (no server, no DynaMech). Without name: the list of templates. With name: the script text,
+    which writes a .k deck next to itself when the user runs it. Start from a template when one fits.
+
+    Args:
+        name: deck_skeleton (control and output keywords) or material_section_part
+            (*MAT_024, *SECTION_SHELL, *PART). Empty for the list.
+    """
+    return await run_guarded(ctx, "pydyna_template", {"name": name}, lambda: template_result(name))
+
+
+@function_tool
 async def lookup_dpf_api(ctx: RunContextWrapper[ChampionContext], name: str) -> str:
     """Get the exact record of a PyDPF name from the installed ansys-dpf-post and ansys-dpf-core, with
     version and source file: a DPF operator (input and output pins with types and documents, LS-DYNA or
@@ -456,6 +510,9 @@ search_pydpf_core = _search_tool(
     "lookup_dpf_api. Query: what to do with DPF, for example \"read part energies from a binout with operators\".")
 
 KEYWORD_TOOLS = (lookup_keyword, search_keyword, validate_keyword_params, lookup_api)
-CODE_TOOLS = (lookup_api, search_pydyna_api, lookup_keyword, check_pydyna_script)
+# T1.2: the core write tools and both validators through guard.py (Code sub-agent only)
+CODE_TOOLS = (pydyna_template, lookup_api, search_pydyna_api, lookup_keyword, guard.validator_tool(check_pydyna_script),
+              guard.write_tool(file_create), guard.write_tool(file_edit), guard.write_tool(file_write),
+              guard.validator_tool(code_check))
 DPF_POST_TOOLS = (search_pydpf_post, lookup_dpf_api, find_dpf_operators, check_dpf_script)
 DPF_CORE_TOOLS = (search_pydpf_core, lookup_dpf_api, find_dpf_operators, check_dpf_script)
