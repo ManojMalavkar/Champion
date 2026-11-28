@@ -16,9 +16,10 @@ from importlib import metadata
 from pathlib import Path
 from typing import Callable, Mapping
 
-from champion.core.config import PLACEHOLDER_MODEL, Config, get_openai_api_key
+from champion.core.config import PLACEHOLDER_MODEL, Config, get_openai_api_key, model_api
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
+API_NAMES = {"chat": "Chat Completions API", "responses": "Responses API"}  # CR-7: llm.api
 
 # (import name, distribution name, needed for)
 REQUIRED_PACKAGES = [
@@ -72,6 +73,8 @@ def check_config(config: Config) -> list[CheckResult]:
         fallback = config.get("llm.model_ids") or []
         extra = f", fallback: {', '.join(fallback)}" if fallback else ""
         results.append(CheckResult("Model", OK, f"{model}{extra}"))
+    api = model_api(config)  # CR-7
+    results.append(CheckResult("Model API", OK, f"{API_NAMES[api]} (llm.api: {config.get('llm.api')})"))
     level = config.get("policy.default_level")
     results.append(CheckResult("Default access level", OK, level))
     tracing = config.get("llm.tracing")
@@ -203,7 +206,7 @@ def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[C
         code = f" (HTTP {status})" if status else ""
         return [CheckResult("OpenAI connection", FAIL, f"{type(exc).__name__}{code}")]
 
-    chat = config.get("llm.provider") == "databricks"
+    chat = model_api(config) == "chat"  # CR-7: the API the chat uses
     results = []
     for model in models:
         try:
@@ -219,7 +222,9 @@ def check_online(config: Config, env: Mapping[str, str] | None = None) -> list[C
                     max_output_tokens=16,
                     input=[{"role": "user", "content": [{"type": "input_text", "text": "Reply with OK."}]}],
                 )
-            api = "Chat Completions API (AI Gateway)" if chat else "Responses API"
+            api = API_NAMES["chat" if chat else "responses"]
+            if config.get("llm.provider") == "databricks":
+                api += " (AI Gateway)"
             results.append(CheckResult(f"Model {model}", OK, f"{api} succeeded"))
         except Exception as exc:  # report the error type only; messages may echo request details
             status = getattr(exc, "status_code", None)

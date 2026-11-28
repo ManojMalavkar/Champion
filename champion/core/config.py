@@ -58,6 +58,7 @@ PLACEHOLDER_MODEL = "REPLACE_WITH_MODEL_ID"
 # openai: OpenAI API (Responses API). databricks: Unity AI Gateway of a
 # Databricks workspace (OpenAI-compatible Chat Completions API).
 PROVIDERS = ("openai", "databricks")
+MODEL_APIS = ("auto", "responses", "chat")  # CR-7: llm.api
 
 DEFAULTS: dict[str, Any] = {
     "llm": {
@@ -68,6 +69,7 @@ DEFAULTS: dict[str, Any] = {
         "base_url": None,  # None = api.openai.com; set later for a gateway
         "tracing": False,  # SDK traces would be sent to OpenAI
         "verify_tls": True,  # false = like curl -k; only allowed with an internal llm.base_url
+        "api": "auto",  # CR-7: auto (openai: Responses, databricks: Chat Completions), responses or chat
     },
     "orchestration": {
         "max_steps": 8,  # orchestrator max_turns
@@ -486,6 +488,16 @@ def validate(data: dict) -> list[str]:
         if llm["tracing"] is True:
             errors.append("llm.tracing must be false when llm.provider is databricks "
                           "(SDK traces would be sent to OpenAI)")
+    # CR-7: the model API. The user's vLLM server (LiteLLM, atlas) returns some calls of Champion's own
+    # tools as Responses "mcp_call" items and then refuses them as input ("Unknown input type: mcp_call",
+    # passed on as HTTP 429); Chat Completions has no such items.
+    if isinstance(llm["api"], str):
+        llm["api"] = llm["api"].strip().lower()
+    if llm["api"] not in MODEL_APIS:
+        errors.append(f"llm.api must be one of {', '.join(MODEL_APIS)} (got {llm['api']!r})")
+    elif llm["provider"] == "databricks" and llm["api"] == "responses":
+        errors.append("llm.api: responses is not possible when llm.provider is databricks "
+                      "(the AI Gateway is used with the Chat Completions API); use auto or chat")
     boolean("llm.tracing")
     boolean("llm.verify_tls")
     if llm["verify_tls"] is False:
@@ -621,6 +633,15 @@ def _validate_memory(memory: Mapping[str, Any]) -> list[str]:
 
 
 # --------------------------------------------------------------- OpenAI key
+
+def model_api(config: Config) -> str:
+    """CR-7: "chat" (Chat Completions API) or "responses" (Responses API) from llm.api; auto keeps the
+    provider's API (databricks: chat, openai: responses)."""
+    api = config.get("llm.api") or "auto"
+    if api == "auto":
+        return "chat" if config.get("llm.provider") == "databricks" else "responses"
+    return api
+
 
 def get_openai_api_key(root: Path | None = None,
                        env: Mapping[str, str] | None = None,
